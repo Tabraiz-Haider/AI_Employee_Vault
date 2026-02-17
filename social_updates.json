@@ -1,0 +1,97 @@
+{
+  "last_fetched": "2026-02-18T02:30:00",
+  "platforms": {
+    "facebook": {
+      "messages": [
+        {
+          "id": "fb_001",
+          "from": "Ahmed Raza",
+          "type": "message",
+          "timestamp": "2026-02-17 14:22",
+          "content": "Hey, I saw your agency's work on that e-commerce project. We need a similar solution for our clothing brand. Can we schedule a call?",
+          "is_business_inquiry": true
+        },
+        {
+          "id": "fb_002",
+          "from": "Sara Khan",
+          "type": "comment",
+          "timestamp": "2026-02-17 16:05",
+          "content": "Amazing work on the Lyvexa AI dashboard! How can I get one for my startup?",
+          "is_business_inquiry": true
+        },
+        {
+          "id": "fb_003",
+          "from": "Ali Hassan",
+          "type": "message",
+          "timestamp": "2026-02-17 18:30",
+          "content": "Bro great work, keep it up!",
+          "is_business_inquiry": false
+        },
+        {
+          "id": "fb_004",
+          "from": "Fatima Zahra",
+          "type": "reaction",
+          "timestamp": "2026-02-17 20:15",
+          "content": "Liked your post: 'Multicraft Agency launches AI-powered dashboards'",
+          "is_business_inquiry": false
+        }
+      ],
+      "notifications": [
+        {
+          "id": "fb_n01",
+          "type": "page_like",
+          "timestamp": "2026-02-17 15:00",
+          "content": "12 new people liked Multicraft Agency page"
+        },
+        {
+          "id": "fb_n02",
+          "type": "post_reach",
+          "timestamp": "2026-02-17 19:45",
+          "content": "Your post reached 2,400 people — 3x your average"
+        }
+      ]
+    },
+    "instagram": {
+      "messages": [
+        {
+          "id": "ig_001",
+          "from": "Usman Tariq",
+          "type": "dm",
+          "timestamp": "2026-02-17 10:12",
+          "content": "Hi, I run a restaurant chain in Lahore. We need a mobile app and website. What are your rates?",
+          "is_business_inquiry": true
+        },
+        {
+          "id": "ig_002",
+          "from": "Zainab Malik",
+          "type": "dm",
+          "timestamp": "2026-02-17 13:45",
+          "content": "Love your reels! What tools do you use for editing?",
+          "is_business_inquiry": false
+        },
+        {
+          "id": "ig_003",
+          "from": "Tech Starter PK",
+          "type": "dm",
+          "timestamp": "2026-02-17 21:30",
+          "content": "We are looking for an AI automation partner for our SaaS product. Is Lyvexa AI available for a consultation?",
+          "is_business_inquiry": true
+        }
+      ],
+      "notifications": [
+        {
+          "id": "ig_n01",
+          "type": "follower_milestone",
+          "timestamp": "2026-02-17 11:00",
+          "content": "You reached 500 followers on Instagram"
+        },
+        {
+          "id": "ig_n02",
+          "type": "story_views",
+          "timestamp": "2026-02-17 22:00",
+          "content": "Your story was viewed 340 times"
+        }
+      ]
+    }
+  }
+}

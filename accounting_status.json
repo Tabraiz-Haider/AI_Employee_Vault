@@ -1,0 +1,147 @@
+{
+  "last_synced": "2026-02-18T03:00:00",
+  "company": "Multicraft Agency",
+  "currency": "PKR",
+  "fiscal_month": "February 2026",
+  "invoices": [
+    {
+      "id": "INV-2026-0041",
+      "client": "CloudNeurix",
+      "description": "AI Dashboard Development — Phase 1",
+      "amount": 350000,
+      "status": "paid",
+      "issue_date": "2026-01-28",
+      "due_date": "2026-02-12",
+      "paid_date": "2026-02-10"
+    },
+    {
+      "id": "INV-2026-0042",
+      "client": "FoodPanda Partner (Lahore)",
+      "description": "Mobile App UI/UX Redesign",
+      "amount": 220000,
+      "status": "paid",
+      "issue_date": "2026-02-01",
+      "due_date": "2026-02-15",
+      "paid_date": "2026-02-14"
+    },
+    {
+      "id": "INV-2026-0043",
+      "client": "Tech Starter PK",
+      "description": "SaaS Automation Consultation — Discovery Phase",
+      "amount": 150000,
+      "status": "overdue",
+      "issue_date": "2026-02-03",
+      "due_date": "2026-02-13",
+      "paid_date": null
+    },
+    {
+      "id": "INV-2026-0044",
+      "client": "Elegant Couture",
+      "description": "E-Commerce Store Development",
+      "amount": 480000,
+      "status": "pending",
+      "issue_date": "2026-02-10",
+      "due_date": "2026-02-28",
+      "paid_date": null
+    },
+    {
+      "id": "INV-2026-0045",
+      "client": "GreenVolt Energy",
+      "description": "IoT Monitoring Dashboard — Prototype",
+      "amount": 275000,
+      "status": "pending",
+      "issue_date": "2026-02-15",
+      "due_date": "2026-03-01",
+      "paid_date": null
+    },
+    {
+      "id": "INV-2026-0046",
+      "client": "Ahmed Raza (Clothing Brand)",
+      "description": "E-Commerce Solution — Deposit",
+      "amount": 100000,
+      "status": "draft",
+      "issue_date": "2026-02-18",
+      "due_date": null,
+      "paid_date": null
+    }
+  ],
+  "expenses": [
+    {
+      "id": "EXP-2026-0101",
+      "category": "Cloud & Hosting",
+      "vendor": "Vercel Pro",
+      "description": "Monthly hosting — 3 client projects",
+      "amount": 8500,
+      "date": "2026-02-01",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0102",
+      "category": "Cloud & Hosting",
+      "vendor": "AWS",
+      "description": "EC2 + S3 — Lyvexa AI infra",
+      "amount": 22000,
+      "date": "2026-02-01",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0103",
+      "category": "Software Licenses",
+      "vendor": "Anthropic",
+      "description": "Claude Pro subscription",
+      "amount": 5500,
+      "date": "2026-02-05",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0104",
+      "category": "Software Licenses",
+      "vendor": "Figma",
+      "description": "Professional plan — design team",
+      "amount": 4200,
+      "date": "2026-02-05",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0105",
+      "category": "Marketing",
+      "vendor": "Meta Ads",
+      "description": "Facebook + Instagram campaign — Feb",
+      "amount": 35000,
+      "date": "2026-02-08",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0106",
+      "category": "Office & Admin",
+      "vendor": "Jazz 4G",
+      "description": "Business internet — monthly",
+      "amount": 6500,
+      "date": "2026-02-10",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0107",
+      "category": "Contractor Payments",
+      "vendor": "Freelance Dev (Haris)",
+      "description": "React Native module — FoodPanda project",
+      "amount": 45000,
+      "date": "2026-02-12",
+      "status": "paid"
+    },
+    {
+      "id": "EXP-2026-0108",
+      "category": "Domain & SSL",
+      "vendor": "GoDaddy",
+      "description": "Domain renewals — 2 domains",
+      "amount": 7800,
+      "date": "2026-02-15",
+      "status": "pending"
+    }
+  ],
+  "bank_balance": {
+    "account": "Meezan Bank — Business Current",
+    "balance": 612000,
+    "as_of": "2026-02-17"
+  }
+}

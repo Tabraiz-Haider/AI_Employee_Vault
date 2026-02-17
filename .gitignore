@@ -1,0 +1,68 @@
+# ──────────────────────────────────────────────
+# AI Employee Vault — Platinum Security Rules
+# NEVER sync secrets, tokens, or sessions
+# ──────────────────────────────────────────────
+
+# ── Secrets & Credentials ──
+.env
+.env.*
+*.secret
+credentials.json
+watchers/credentials.json
+
+# ── OAuth Tokens ──
+token.json
+tokens.json
+watchers/token.json
+*.token
+
+# ── Session Files ──
+*.session
+*.session-journal
+
+# ── API Keys ──
+api_keys.json
+*.key
+*.pem
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# ── Streamlit ──
+.streamlit/secrets.toml
+
+# ── OS Files ──
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+~$*
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Obsidian (keep config, ignore workspace cache) ──
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# ── Logs ──
+*.log
+logs/
+
+# ── Keep empty workflow directories ──
+# Git ignores empty dirs, so .gitkeep files are needed
+# (already handled by vault_sync.py)
