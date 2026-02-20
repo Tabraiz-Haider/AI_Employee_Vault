@@ -17,6 +17,7 @@ WORKFLOW_DIRS = [
     "Needs_Action/Social",
     "In_Progress",
     "Pending_Approval",
+    "Approved",
     "Done",
     "Plans",
     "Drafts",

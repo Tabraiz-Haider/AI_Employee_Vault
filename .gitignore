@@ -59,6 +59,11 @@ desktop.ini
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 
+# ── Playwright Browser Profile & Screenshots ──
+.playwright_profile/
+post_confirmation.png
+failure_capture.png
+
 # ── Logs ──
 *.log
 logs/
