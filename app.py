@@ -6,6 +6,9 @@ import re
 import subprocess
 import threading
 import time
+import os
+import signal
+import shutil
 from pathlib import Path
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
@@ -262,6 +265,62 @@ st.markdown("""
         margin-top: 48px; padding: 14px 0;
         border-top: 1px solid #1C2028;
     }
+
+    /* ── Console Log ── */
+    .console-log {
+        background: #010409;
+        border: 1px solid #1C2028;
+        border-radius: 8px;
+        padding: 14px 16px;
+        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        font-size: 0.72rem;
+        color: #8B949E;
+        max-height: 360px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.55;
+    }
+
+    /* ── Draft Card ── */
+    .draft-card {
+        background: #0D1117;
+        border: 1px solid #1C2028;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        transition: border-color 0.15s;
+    }
+    .draft-card:hover {
+        border-color: #30363D;
+    }
+    .draft-card .draft-title {
+        color: #E6EDF3; font-weight: 500; font-size: 0.84rem;
+    }
+    .draft-card .draft-meta {
+        color: #6E7681; font-size: 0.68rem; margin-top: 3px;
+    }
+    .draft-card .draft-status {
+        display: inline-block; font-size: 0.58rem; font-weight: 600;
+        padding: 1px 6px; border-radius: 3px;
+        letter-spacing: 0.04em;
+    }
+    .draft-status-draft { background: #0C2D48; color: #58A6FF; }
+    .draft-status-posted { background: #1B3D2F; color: #3FB950; }
+
+    /* ── Watcher Status ── */
+    .status-running {
+        display: inline-block; font-size: 0.6rem; font-weight: 600;
+        padding: 2px 8px; border-radius: 10px;
+        background: #1B3D2F; color: #3FB950;
+        letter-spacing: 0.04em;
+    }
+    .status-stopped {
+        display: inline-block; font-size: 0.6rem; font-weight: 600;
+        padding: 2px 8px; border-radius: 10px;
+        background: #161B22; color: #6E7681;
+        letter-spacing: 0.04em;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -278,8 +337,81 @@ DONE_DIR = BASE_DIR / "Done"
 PLANS_DIR = BASE_DIR / "Plans"
 DRAFTS_DIR = BASE_DIR / "Drafts"
 COMMANDS_DIR = BASE_DIR / "Commands"
+APPROVED_DIR = BASE_DIR / "Approved"
+LOGS_DIR = BASE_DIR / "logs"
+LOG_FILE = LOGS_DIR / "agent_activity.log"
 
 COMMANDS_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
+APPROVED_DIR.mkdir(exist_ok=True)
+
+WATCHERS = {
+    "Gmail Bridge": "watchers/gmail_bridge.py",
+    "Desktop Watcher": "watchers/desktop_watcher.py",
+    "Agent Brain": "agent_brain.py",
+    "Social Media Agent": "social_media_agent.py",
+    "Odoo Bridge": "odoo_mcp_bridge.py",
+}
+
+
+# ──────────────────────────────────────────────
+# PROCESS MANAGEMENT HELPERS
+# ──────────────────────────────────────────────
+def start_watcher(name, script_path):
+    """Start a background watcher process, redirect output to log file."""
+    full_path = BASE_DIR / script_path
+    if not full_path.exists():
+        st.toast(f"{name}: script not found ({script_path})", icon="\u274c")
+        return
+    log_handle = open(LOG_FILE, "a", encoding="utf-8")
+    log_handle.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] Starting {name}...\n")
+    log_handle.flush()
+    proc = subprocess.Popen(
+        ["python", str(full_path)],
+        cwd=str(BASE_DIR),
+        stdout=log_handle,
+        stderr=log_handle,
+    )
+    st.session_state[f"watcher_{name}_pid"] = proc.pid
+    st.session_state[f"watcher_{name}_proc"] = proc
+    st.session_state[f"watcher_{name}_log"] = log_handle
+
+
+def stop_watcher(name):
+    """Stop a running watcher process."""
+    proc = st.session_state.get(f"watcher_{name}_proc")
+    if proc:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            # Windows fallback
+            try:
+                pid = st.session_state.get(f"watcher_{name}_pid")
+                if pid:
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                   capture_output=True, timeout=10)
+            except Exception:
+                pass
+    # Clean up log handle
+    log_handle = st.session_state.get(f"watcher_{name}_log")
+    if log_handle:
+        try:
+            log_handle.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Stopped {name}.\n")
+            log_handle.flush()
+            log_handle.close()
+        except Exception:
+            pass
+    for key in [f"watcher_{name}_pid", f"watcher_{name}_proc", f"watcher_{name}_log"]:
+        st.session_state.pop(key, None)
+
+
+def is_watcher_running(name):
+    """Check if a watcher process is still alive."""
+    proc = st.session_state.get(f"watcher_{name}_proc")
+    if proc and proc.poll() is None:
+        return True
+    return False
 
 
 def load_briefing():
@@ -443,8 +575,43 @@ with st.sidebar:
     )
     st.markdown('<hr class="sb-divider">', unsafe_allow_html=True)
 
-    # Auto-Pilot hidden under expander
-    with st.expander("Agent Settings"):
+    # ── Background Watchers ──
+    with st.expander("Background Watchers"):
+        for watcher_name, watcher_script in WATCHERS.items():
+            running = is_watcher_running(watcher_name)
+            badge = '<span class="status-running">RUNNING</span>' if running else '<span class="status-stopped">STOPPED</span>'
+            st.markdown(f'<span class="sb-value" style="font-size:0.76rem;">{watcher_name}</span> {badge}', unsafe_allow_html=True)
+            w_col1, w_col2 = st.columns(2)
+            with w_col1:
+                if st.button("Start", key=f"start_{watcher_name}", disabled=running, use_container_width=True):
+                    start_watcher(watcher_name, watcher_script)
+                    st.toast(f"{watcher_name} started", icon="\u2705")
+                    st.rerun()
+            with w_col2:
+                if st.button("Stop", key=f"stop_{watcher_name}", disabled=not running, use_container_width=True):
+                    stop_watcher(watcher_name)
+                    st.toast(f"{watcher_name} stopped", icon="\u26d4")
+                    st.rerun()
+
+        st.markdown("---")
+        sa_col1, sa_col2 = st.columns(2)
+        with sa_col1:
+            if st.button("Start All", key="start_all_watchers", use_container_width=True):
+                for wn, ws in WATCHERS.items():
+                    if not is_watcher_running(wn):
+                        start_watcher(wn, ws)
+                st.toast("All watchers started", icon="\u2705")
+                st.rerun()
+        with sa_col2:
+            if st.button("Stop All", key="stop_all_watchers", use_container_width=True):
+                for wn in WATCHERS:
+                    if is_watcher_running(wn):
+                        stop_watcher(wn)
+                st.toast("All watchers stopped", icon="\u26d4")
+                st.rerun()
+
+    # ── Quick Actions ──
+    with st.expander("Quick Actions"):
         autopilot = st.toggle("Autonomous Posting Mode", value=False, key="autopilot_toggle")
         if autopilot:
             st.markdown('<span class="sb-badge sb-badge-on">AUTO-PILOT ON</span>', unsafe_allow_html=True)
@@ -476,10 +643,9 @@ with st.sidebar:
 
         st.markdown("---")
 
-        if st.button("Execute All Approved", key="execute_approved_btn"):
+        if st.button("Execute All Approved", key="execute_approved_btn", use_container_width=True):
             with st.spinner("Running LinkedIn poster and WhatsApp sender..."):
                 errors = []
-                # Run LinkedIn poster
                 try:
                     lp_result = subprocess.run(
                         ["python", str(BASE_DIR / "linkedin_poster.py")],
@@ -494,8 +660,6 @@ with st.sidebar:
                     errors.append("LinkedIn: Timed out after 120s")
                 except Exception as e:
                     errors.append(f"LinkedIn: {e}")
-
-                # Run WhatsApp sender
                 try:
                     wa_result = subprocess.run(
                         ["python", str(BASE_DIR / "whatsapp_sender.py")],
@@ -510,9 +674,91 @@ with st.sidebar:
                     errors.append("WhatsApp: Timed out after 120s")
                 except Exception as e:
                     errors.append(f"WhatsApp: {e}")
-
                 for err in errors:
                     st.error(err)
+            st.toast("Execute All Approved completed", icon="\u2705")
+
+        if st.button("Run Full Audit", key="run_audit_btn", use_container_width=True):
+            with st.status("Running Odoo Audit...", expanded=True) as status:
+                st.write("Connecting to Odoo bridge...")
+                try:
+                    result = subprocess.run(
+                        ["python", str(BASE_DIR / "odoo_mcp_bridge.py")],
+                        cwd=str(BASE_DIR), timeout=180,
+                        capture_output=True, text=True,
+                    )
+                    st.write("Generating audit report...")
+                    if result.returncode == 0:
+                        st.write(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
+                        status.update(label="Audit complete!", state="complete")
+                    else:
+                        st.write(result.stderr or "Unknown error")
+                        status.update(label="Audit failed", state="error")
+                except subprocess.TimeoutExpired:
+                    status.update(label="Audit timed out", state="error")
+                except Exception as e:
+                    st.write(str(e))
+                    status.update(label="Audit failed", state="error")
+            st.toast("Full audit completed", icon="\u2705")
+
+        if st.button("System Health Check", key="health_check_btn", use_container_width=True):
+            with st.status("Running Health Check...", expanded=True) as status:
+                st.write("Checking scripts...")
+                all_scripts = list(WATCHERS.values()) + [
+                    "linkedin_poster.py", "whatsapp_sender.py",
+                    "linkedin_agent.py", "vault_sync.py",
+                ]
+                missing = []
+                for s in all_scripts:
+                    full = BASE_DIR / s
+                    if full.exists():
+                        st.write(f"  \u2705 {s}")
+                    else:
+                        st.write(f"  \u274c {s} — MISSING")
+                        missing.append(s)
+
+                st.write("Checking watchers...")
+                for wn in WATCHERS:
+                    r = is_watcher_running(wn)
+                    icon = "\u2705" if r else "\u26aa"
+                    st.write(f"  {icon} {wn}: {'Running' if r else 'Stopped'}")
+
+                st.write("Checking git status...")
+                try:
+                    git_res = subprocess.run(
+                        ["git", "status", "--short"],
+                        cwd=str(BASE_DIR), timeout=10,
+                        capture_output=True, text=True,
+                    )
+                    changes = git_res.stdout.strip()
+                    if changes:
+                        st.write(f"  {len(changes.splitlines())} uncommitted change(s)")
+                    else:
+                        st.write("  Working tree clean")
+                except Exception:
+                    st.write("  Could not check git status")
+
+                if missing:
+                    status.update(label=f"Health check: {len(missing)} script(s) missing", state="error")
+                else:
+                    status.update(label="Health check complete!", state="complete")
+            st.toast("Health check completed", icon="\u2705")
+
+        if st.button("Sync Vault", key="sync_vault_btn", use_container_width=True):
+            with st.spinner("Syncing vault..."):
+                try:
+                    sync_result = subprocess.run(
+                        ["python", str(BASE_DIR / "vault_sync.py"), "sync"],
+                        cwd=str(BASE_DIR), timeout=60,
+                        capture_output=True, text=True,
+                    )
+                    if sync_result.returncode == 0:
+                        st.success("Vault synced")
+                    else:
+                        st.error(sync_result.stderr or "Sync failed")
+                except Exception as e:
+                    st.error(f"Sync error: {e}")
+            st.toast("Vault sync completed", icon="\u2705")
 
     st.markdown('<hr class="sb-divider">', unsafe_allow_html=True)
     st.markdown(
@@ -571,6 +817,29 @@ o3.metric("High Priority", high_priority,
           delta_color="inverse" if high_priority > 0 else "normal")
 o4.metric("To Do", len(kanban_todo))
 o5.metric("In Progress", len(kanban_doing))
+
+# ──────────────────────────────────────────────
+# AGENT CONSOLE — Live Logs
+# ──────────────────────────────────────────────
+st.markdown('<div class="section-header">Agent Console</div>', unsafe_allow_html=True)
+with st.expander("Live Agent Logs", expanded=False):
+    if LOG_FILE.exists():
+        try:
+            log_lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+            last_50 = log_lines[-50:] if len(log_lines) > 50 else log_lines
+            log_content = "\n".join(last_50)
+        except Exception:
+            log_content = "Error reading log file."
+    else:
+        log_content = "No log entries yet. Start a watcher to generate logs."
+    st.markdown(f'<div class="console-log">{log_content}</div>', unsafe_allow_html=True)
+    if st.button("Clear Logs", key="clear_logs_btn"):
+        try:
+            LOG_FILE.write_text("", encoding="utf-8")
+            st.toast("Logs cleared", icon="\U0001f9f9")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not clear logs: {e}")
 
 # ──────────────────────────────────────────────
 # KANBAN BOARD
@@ -660,41 +929,109 @@ with hub_right:
         st.info("No social data yet.")
 
 # ──────────────────────────────────────────────
-# LINKEDIN POST STATUS
+# DRAFT MANAGEMENT
 # ──────────────────────────────────────────────
-st.markdown('<div class="section-header">LinkedIn Post Status</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">Draft Management</div>', unsafe_allow_html=True)
 if DRAFTS_DIR.exists():
-    draft_files = sorted(DRAFTS_DIR.glob("LinkedIn_Post*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+    draft_files = sorted(DRAFTS_DIR.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+    draft_files = [f for f in draft_files if f.name != ".gitkeep"]
     if draft_files:
-        rows = []
+        # Summary row
+        all_rows = []
         for f in draft_files:
             text = f.read_text(encoding="utf-8")
             brand_m = re.search(r"\*\*Brand:\*\*\s*(.+)", text)
             gen_m = re.search(r"\*\*Generated:\*\*\s*(.+)", text)
             stat_m = re.search(r"\*\*Status:\*\*\s*(.+)", text)
-            rows.append({
-                "Brand": brand_m.group(1).strip() if brand_m else "—",
-                "Generated": gen_m.group(1).strip() if gen_m else "—",
-                "Status": stat_m.group(1).strip() if stat_m else "—",
-                "File": f.name,
+            all_rows.append({
+                "brand": brand_m.group(1).strip() if brand_m else "\u2014",
+                "generated": gen_m.group(1).strip() if gen_m else "\u2014",
+                "status": stat_m.group(1).strip() if stat_m else "\u2014",
+                "file": f.name,
+                "path": f,
             })
-        df_posts = pd.DataFrame(rows)
-        posted = len(df_posts[df_posts["Status"] == "Posted"])
-        drafts = len(df_posts[df_posts["Status"] == "Draft"])
+        posted_count = sum(1 for r in all_rows if r["status"] == "Posted")
+        draft_count = sum(1 for r in all_rows if r["status"] == "Draft")
         st.markdown(
             f'<div class="card"><div class="card-body">'
-            f'Total: <strong style="color:#C9D1D9;">{len(df_posts)}</strong> &middot; '
-            f'Posted: <strong style="color:#3FB950;">{posted}</strong> &middot; '
-            f'Drafts: <strong style="color:#58A6FF;">{drafts}</strong>'
+            f'Total: <strong style="color:#C9D1D9;">{len(all_rows)}</strong> &middot; '
+            f'Posted: <strong style="color:#3FB950;">{posted_count}</strong> &middot; '
+            f'Drafts: <strong style="color:#58A6FF;">{draft_count}</strong>'
             f'</div></div>',
             unsafe_allow_html=True,
         )
-        with st.expander("All LinkedIn Drafts"):
-            st.dataframe(df_posts, use_container_width=True, hide_index=True)
+
+        # Check if we are editing a draft
+        editing_draft = st.session_state.get("editing_draft", None)
+
+        if editing_draft and Path(editing_draft).exists():
+            # ── Editing mode ──
+            edit_path = Path(editing_draft)
+            st.markdown(f'**Editing:** `{edit_path.name}`')
+            current_content = edit_path.read_text(encoding="utf-8")
+            edited_text = st.text_area(
+                "Draft Content",
+                value=current_content,
+                height=300,
+                key="draft_editor_area",
+                label_visibility="collapsed",
+            )
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                if st.button("Save", key="save_draft_btn", use_container_width=True):
+                    edit_path.write_text(edited_text, encoding="utf-8")
+                    st.toast("Draft saved", icon="\U0001f4be")
+                    st.rerun()
+            with btn_col2:
+                if st.button("Save & Approve", key="save_approve_btn", use_container_width=True):
+                    # Update status in content
+                    approved_text = re.sub(
+                        r"\*\*Status:\*\*\s*.+",
+                        "**Status:** Approved",
+                        edited_text,
+                    )
+                    edit_path.write_text(approved_text, encoding="utf-8")
+                    # Move to Approved/
+                    dest = APPROVED_DIR / edit_path.name
+                    shutil.move(str(edit_path), str(dest))
+                    st.session_state["editing_draft"] = None
+                    st.toast("Draft approved and moved", icon="\u2705")
+                    st.rerun()
+            with btn_col3:
+                if st.button("Cancel", key="cancel_edit_btn", use_container_width=True):
+                    st.session_state["editing_draft"] = None
+                    st.rerun()
+        else:
+            # Clear stale editing state
+            if editing_draft:
+                st.session_state["editing_draft"] = None
+
+            # ── List mode ──
+            for idx, row in enumerate(all_rows):
+                stat_class = "draft-status-posted" if row["status"] == "Posted" else "draft-status-draft"
+                st.markdown(
+                    f'<div class="draft-card">'
+                    f'<span class="draft-status {stat_class}">{row["status"]}</span> '
+                    f'<span class="draft-title">{row["brand"]}</span>'
+                    f'<div class="draft-meta">{row["file"]} &middot; {row["generated"]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("Edit", key=f"edit_draft_{idx}", use_container_width=False):
+                    st.session_state["editing_draft"] = str(row["path"])
+                    st.rerun()
     else:
-        st.info("No LinkedIn drafts found.")
+        st.info("No drafts found.")
 else:
     st.info("Drafts folder not found.")
+
+# Approved drafts summary
+if APPROVED_DIR.exists():
+    approved_files = [f for f in sorted(APPROVED_DIR.glob("*.md")) if f.name != ".gitkeep"]
+    if approved_files:
+        with st.expander(f"Approved Drafts ({len(approved_files)})"):
+            for af in approved_files:
+                st.markdown(f'<div class="card"><div class="card-title">{af.name}</div></div>', unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
 # CHARTS
