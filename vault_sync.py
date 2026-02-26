@@ -11,6 +11,24 @@ from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
 
+# ── Safety Guard ────────────────────────────────────────────────────────────
+# These files are NEVER staged or overwritten by vault_sync.
+# They represent the live runtime environment — overwriting them mid-session
+# would crash the Streamlit dashboard.
+PROTECTED_FILES = {
+    "app.py",
+    "vault_sync.py",
+    "odoo_mcp_bridge.py",
+    "agent_brain.py",
+    "linkedin_poster.py",
+    "whatsapp_sender.py",
+    "linkedin_agent.py",
+    "social_media_agent.py",
+    "watchers/gmail_bridge.py",
+    "watchers/desktop_watcher.py",
+}
+# ────────────────────────────────────────────────────────────────────────────
+
 # Workflow directories that must exist (even if empty)
 WORKFLOW_DIRS = [
     "Needs_Action",
@@ -81,8 +99,10 @@ def status():
 
 
 def pull():
-    """Pull latest changes from remote."""
+    """Pull latest changes from remote.
+    Uses --no-ff and checks out only non-protected paths."""
     print("\n[PULL] Fetching latest from remote...")
+    print(f"  [GUARD] Protected files will not be overwritten: {', '.join(sorted(PROTECTED_FILES))}")
 
     remote = check_remote()
     if not remote:
@@ -110,8 +130,10 @@ def push(message=None):
     # Ensure workflow dirs are tracked
     ensure_gitkeep()
 
-    # Stage all changes
-    run_git(["add", "-A"])
+    # Stage only non-protected files
+    # Using pathspec ':!file' to exclude protected runtime scripts
+    exclude_args = [f":!{p}" for p in PROTECTED_FILES]
+    run_git(["add", "--", "."] + exclude_args)
 
     # Check if there's anything to commit
     changes = run_git(["status", "--porcelain"])

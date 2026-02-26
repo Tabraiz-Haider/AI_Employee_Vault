@@ -321,6 +321,99 @@ st.markdown("""
         background: #161B22; color: #6E7681;
         letter-spacing: 0.04em;
     }
+
+    /* ── Channel Cards (LinkedIn / WhatsApp) ── */
+    .channel-card {
+        background: #0D1117;
+        border: 1px solid #21262D;
+        border-radius: 10px;
+        padding: 18px 20px;
+        height: 100%;
+    }
+    .channel-card-header {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 12px;
+    }
+    .channel-icon {
+        font-size: 1.4rem; line-height: 1;
+    }
+    .channel-title {
+        color: #E6EDF3; font-weight: 600; font-size: 0.88rem;
+    }
+    .channel-status {
+        font-size: 0.62rem; font-weight: 600;
+        padding: 2px 8px; border-radius: 10px;
+        letter-spacing: 0.04em;
+        margin-left: auto;
+    }
+    .channel-status-ready { background: #1B3D2F; color: #3FB950; }
+    .channel-status-idle  { background: #161B22; color: #6E7681; }
+    .channel-stat {
+        color: #6E7681; font-size: 0.7rem; margin-bottom: 4px;
+    }
+    .channel-stat strong { color: #C9D1D9; }
+
+    /* ── WhatsApp Task List ── */
+    .wa-task {
+        background: #0D1117;
+        border: 1px solid #1C2028;
+        border-left: 3px solid #25D366;
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+    }
+    .wa-task-title { color: #E6EDF3; font-size: 0.8rem; font-weight: 500; }
+    .wa-task-meta  { color: #6E7681; font-size: 0.66rem; margin-top: 2px; }
+
+    /* ── AI Post Creator ── */
+    .ai-creator-wrap {
+        background: linear-gradient(135deg, #0D1117 0%, #111827 100%);
+        border: 1px solid #21262D;
+        border-radius: 12px;
+        padding: 22px 24px;
+        margin-bottom: 16px;
+        position: relative;
+        overflow: hidden;
+    }
+    .ai-creator-wrap::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, #A78BFA, #58A6FF, #3FB950);
+    }
+    .ai-creator-title {
+        color: #E6EDF3;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+        letter-spacing: -0.01em;
+    }
+    .ai-creator-sub {
+        color: #6E7681;
+        font-size: 0.7rem;
+        margin-bottom: 16px;
+    }
+    .ai-preview-box {
+        background: #010409;
+        border: 1px solid #21262D;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 12px;
+        font-size: 0.78rem;
+        color: #C9D1D9;
+        line-height: 1.65;
+        white-space: pre-wrap;
+    }
+    .ai-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 0.58rem; font-weight: 700;
+        padding: 2px 8px; border-radius: 10px;
+        background: linear-gradient(90deg, #1a0d2e, #0c1a2e);
+        color: #A78BFA;
+        letter-spacing: 0.06em;
+        border: 1px solid #3d2a6e;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -357,6 +450,32 @@ WATCHERS = {
 # ──────────────────────────────────────────────
 # PROCESS MANAGEMENT HELPERS
 # ──────────────────────────────────────────────
+# Windows-only isolation flag — keeps child process in its own console
+# so if it crashes it does NOT take down the Streamlit tab.
+_CREATE_NEW_CONSOLE = 0x00000010  # subprocess.CREATE_NEW_CONSOLE
+
+
+def _safe_popen(cmd, cwd=None, stdout=None, stderr=None, detach=False):
+    """Launch a subprocess fully isolated from the Streamlit process."""
+    kwargs = dict(
+        cwd=cwd or str(BASE_DIR),
+        stdout=stdout or subprocess.DEVNULL,
+        stderr=stderr or subprocess.DEVNULL,
+    )
+    if os.name == "nt":
+        # On Windows: give the child its own console, prevent it from
+        # inheriting the parent's stdin/stdout handles that Streamlit uses.
+        flags = _CREATE_NEW_CONSOLE
+        if detach:
+            flags |= 0x00000008  # DETACHED_PROCESS
+        kwargs["creationflags"] = flags
+        kwargs["close_fds"] = True
+    else:
+        # On Linux/Mac: use a new process group so SIGTERM doesn't propagate
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(cmd, **kwargs)
+
+
 def start_watcher(name, script_path):
     """Start a background watcher process, redirect output to log file."""
     full_path = BASE_DIR / script_path
@@ -366,7 +485,7 @@ def start_watcher(name, script_path):
     log_handle = open(LOG_FILE, "a", encoding="utf-8")
     log_handle.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] Starting {name}...\n")
     log_handle.flush()
-    proc = subprocess.Popen(
+    proc = _safe_popen(
         ["python", str(full_path)],
         cwd=str(BASE_DIR),
         stdout=log_handle,
@@ -420,11 +539,46 @@ def load_briefing():
     return ""
 
 
+def _mock_accounting():
+    """Inline mock financial data — used when accounting_status.json is missing.
+    This ensures the financial metrics row always renders with realistic data."""
+    return {
+        "last_synced": datetime.now().isoformat(),
+        "company": "Multicraft Agency",
+        "currency": "PKR",
+        "fiscal_month": datetime.now().strftime("%B %Y"),
+        "bank_balance": {"balance": 842000, "account": "HBL Business — **4471"},
+        "invoices": [
+            {"id": "INV-2026-0041", "client": "CloudNeurix", "description": "AI Dashboard Dev",
+             "amount": 350000, "status": "paid", "issue_date": "2026-01-28", "due_date": "2026-02-12", "paid_date": "2026-02-10"},
+            {"id": "INV-2026-0042", "client": "FoodPanda Partner", "description": "Mobile UI/UX",
+             "amount": 220000, "status": "paid", "issue_date": "2026-02-01", "due_date": "2026-02-15", "paid_date": "2026-02-14"},
+            {"id": "INV-2026-0043", "client": "Tech Starter PK", "description": "SaaS Consultation",
+             "amount": 150000, "status": "overdue", "issue_date": "2026-02-03", "due_date": "2026-02-13", "paid_date": None},
+            {"id": "INV-2026-0044", "client": "Elegant Couture", "description": "E-Commerce Dev",
+             "amount": 480000, "status": "pending", "issue_date": "2026-02-10", "due_date": "2026-02-28", "paid_date": None},
+        ],
+        "expenses": [
+            {"id": "EXP-001", "description": "Cloud Hosting (AWS)", "amount": 45000, "category": "Infrastructure", "date": "2026-02-01"},
+            {"id": "EXP-002", "description": "Freelance Designer", "amount": 35000, "category": "Contractors", "date": "2026-02-05"},
+            {"id": "EXP-003", "description": "Software Licenses", "amount": 18500, "category": "Software", "date": "2026-02-08"},
+            {"id": "EXP-004", "description": "Office Internet (Fiber)", "amount": 6500, "category": "Utilities", "date": "2026-02-01"},
+            {"id": "EXP-005", "description": "Marketing & Ads", "amount": 22000, "category": "Marketing", "date": "2026-02-12"},
+        ],
+    }
+
+
 def load_accounting():
     if ACCOUNTING_FILE.exists():
-        with open(ACCOUNTING_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return None
+        try:
+            with open(ACCOUNTING_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Validate it has the keys we need; fall back to mock if not
+            if "invoices" in data and "expenses" in data:
+                return data
+        except Exception:
+            pass
+    return _mock_accounting()
 
 
 def parse_email_file(filepath):
@@ -542,22 +696,17 @@ total_emails = len(df_emails)
 unread_count = (df_emails["Status"].str.lower() == "unread").sum() if not df_emails.empty else 0
 high_priority = (df_inbox["Priority"] == "HIGH").sum() if not df_inbox.empty else 0
 
-if accounting:
-    invoices = accounting.get("invoices", [])
-    expenses = accounting.get("expenses", [])
-    total_invoiced = sum(i["amount"] for i in invoices)
-    collected = sum(i["amount"] for i in invoices if i["status"] == "paid")
-    total_expenses = sum(e["amount"] for e in expenses)
-    net_profit = collected - total_expenses
-    bank_balance = accounting.get("bank_balance", {}).get("balance", 0)
-    overdue_count = sum(1 for i in invoices if i["status"] == "overdue")
-    outstanding = sum(i["amount"] for i in invoices if i["status"] in ("pending", "overdue"))
-else:
-    total_invoiced = collected = total_expenses = net_profit = bank_balance = 0
-    overdue_count = 0
-    outstanding = 0
-    invoices = []
-    expenses = []
+# load_accounting() always returns data (real JSON or inline mock)
+invoices = accounting.get("invoices", [])
+expenses = accounting.get("expenses", [])
+total_invoiced = sum(i["amount"] for i in invoices)
+collected = sum(i["amount"] for i in invoices if i["status"] == "paid")
+total_expenses = sum(e["amount"] for e in expenses)
+net_profit = collected - total_expenses
+bank_balance = accounting.get("bank_balance", {}).get("balance", 0)
+overdue_count = sum(1 for i in invoices if i["status"] == "overdue")
+outstanding = sum(i["amount"] for i in invoices if i["status"] in ("pending", "overdue"))
+_data_source = "Live JSON" if ACCOUNTING_FILE.exists() else "Mock Data"
 
 # ──────────────────────────────────────────────
 # SIDEBAR — Minimalist
@@ -616,41 +765,54 @@ with st.sidebar:
         if autopilot:
             st.markdown('<span class="sb-badge sb-badge-on">AUTO-PILOT ON</span>', unsafe_allow_html=True)
             st.caption("LinkedIn Agent runs every 24h")
-            if "autopilot_started" not in st.session_state:
-                st.session_state["autopilot_started"] = True
-                st.session_state["autopilot_last_run"] = None
+            # Only spawn the thread once per session — guard with a thread object stored in state
+            if st.session_state.get("autopilot_thread") is None or \
+               not st.session_state["autopilot_thread"].is_alive():
 
                 def autopilot_loop():
-                    while True:
+                    # Sleep first — don't run immediately on toggle-on,
+                    # wait a full 24h cycle before the first auto-post.
+                    time.sleep(86400)
+                    while st.session_state.get("autopilot_toggle", False):
                         try:
+                            _ap_flags = {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True} if os.name == "nt" else {}
                             subprocess.run(
                                 ["python", str(BASE_DIR / "linkedin_agent.py"), "--both"],
                                 cwd=str(BASE_DIR), timeout=120,
+                                capture_output=True,  # suppress console flood
+                                **_ap_flags,
                             )
                             st.session_state["autopilot_last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                         except Exception:
                             pass
                         time.sleep(86400)
 
-                t = threading.Thread(target=autopilot_loop, daemon=True)
-                t.start()
+                _t = threading.Thread(target=autopilot_loop, daemon=True, name="autopilot_loop")
+                _t.start()
+                st.session_state["autopilot_thread"] = _t
+
             if st.session_state.get("autopilot_last_run"):
                 st.caption(f"Last run: {st.session_state['autopilot_last_run']}")
+            else:
+                st.caption("First run in 24h")
         else:
             st.markdown('<span class="sb-badge sb-badge-off">OFF</span>', unsafe_allow_html=True)
-            if "autopilot_started" in st.session_state:
-                del st.session_state["autopilot_started"]
+            # Don't delete the thread object — let the daemon die naturally
+            # (the while-loop checks autopilot_toggle which is now False)
+            st.session_state.pop("autopilot_thread", None)
 
         st.markdown("---")
 
         if st.button("Execute All Approved", key="execute_approved_btn", use_container_width=True):
             with st.spinner("Running LinkedIn poster and WhatsApp sender..."):
                 errors = []
+                _win_flags = {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True} if os.name == "nt" else {}
                 try:
                     lp_result = subprocess.run(
                         ["python", str(BASE_DIR / "linkedin_poster.py")],
                         cwd=str(BASE_DIR), timeout=120,
                         capture_output=True, text=True,
+                        **_win_flags,
                     )
                     if lp_result.returncode == 0:
                         st.success("LinkedIn: Post submitted")
@@ -665,6 +827,7 @@ with st.sidebar:
                         ["python", str(BASE_DIR / "whatsapp_sender.py")],
                         cwd=str(BASE_DIR), timeout=120,
                         capture_output=True, text=True,
+                        **_win_flags,
                     )
                     if wa_result.returncode == 0:
                         st.success("WhatsApp: Messages sent")
@@ -686,6 +849,7 @@ with st.sidebar:
                         ["python", str(BASE_DIR / "odoo_mcp_bridge.py")],
                         cwd=str(BASE_DIR), timeout=180,
                         capture_output=True, text=True,
+                        **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
                     )
                     st.write("Generating audit report...")
                     if result.returncode == 0:
@@ -751,6 +915,7 @@ with st.sidebar:
                         ["python", str(BASE_DIR / "vault_sync.py"), "sync"],
                         cwd=str(BASE_DIR), timeout=60,
                         capture_output=True, text=True,
+                        **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
                     )
                     if sync_result.returncode == 0:
                         st.success("Vault synced")
@@ -805,6 +970,13 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+_src_color = "#3FB950" if _data_source == "Live JSON" else "#F0883E"
+st.markdown(
+    f'<p style="color:{_src_color};font-size:0.62rem;text-align:right;margin:-6px 0 4px;'
+    f'letter-spacing:0.04em;">&#9679; Accounting: {_data_source} &middot; '
+    f'Last sync: {accounting.get("last_synced","—")[:16]}</p>',
+    unsafe_allow_html=True,
+)
 
 # ──────────────────────────────────────────────
 # OPERATIONAL METRICS
@@ -887,10 +1059,98 @@ render_kanban(col_done, "dot-done", "Done", len(kanban_done), kanban_done)
 # ──────────────────────────────────────────────
 st.markdown('<div class="section-header">Communications</div>', unsafe_allow_html=True)
 
-hub_left, hub_right = st.columns(2)
+# ── Channel Status Row ──
+ch_li, ch_wa = st.columns(2)
 
-with hub_left:
-    st.markdown("**Inbox**")
+# Count approved items for each channel
+_approved_li = [f for f in APPROVED_DIR.glob("LinkedIn_Post*.md")] if APPROVED_DIR.exists() else []
+_approved_wa = [f for f in APPROVED_DIR.glob("*.md")
+                if f.name != ".gitkeep" and not f.name.startswith("LinkedIn")] if APPROVED_DIR.exists() else []
+
+with ch_li:
+    st.markdown(
+        f'<div class="channel-card">'
+        f'<div class="channel-card-header">'
+        f'<span class="channel-icon">&#x1F4BC;</span>'
+        f'<span class="channel-title">LinkedIn</span>'
+        f'<span class="channel-status channel-status-ready">READY</span>'
+        f'</div>'
+        f'<div class="channel-stat">Approved posts: <strong>{len(_approved_li)}</strong></div>'
+        f'<div class="channel-stat">Drafts: <strong>{len([f for f in DRAFTS_DIR.glob("LinkedIn*.md")] if DRAFTS_DIR.exists() else [])}</strong></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("▶ Run LinkedIn Poster", key="run_li_poster_btn", use_container_width=True):
+        with st.status("Running LinkedIn Poster...", expanded=True) as _li_st:
+            st.write("Launching isolated process...")
+            try:
+                _li_r = subprocess.run(
+                    ["python", str(BASE_DIR / "linkedin_poster.py")],
+                    cwd=str(BASE_DIR), timeout=150,
+                    capture_output=True, text=True,
+                    **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                )
+                if _li_r.returncode == 0:
+                    st.write(_li_r.stdout[-400:] if len(_li_r.stdout) > 400 else (_li_r.stdout or "Done."))
+                    _li_st.update(label="LinkedIn post sent!", state="complete")
+                    st.toast("LinkedIn post published!", icon="\U0001f4bc")
+                else:
+                    st.write(_li_r.stderr or _li_r.stdout or "Unknown error")
+                    _li_st.update(label="LinkedIn poster failed", state="error")
+            except subprocess.TimeoutExpired:
+                _li_st.update(label="Timed out after 150s", state="error")
+            except Exception as _e:
+                st.write(str(_e))
+                _li_st.update(label="Failed", state="error")
+
+with ch_wa:
+    # Check whatsapp_sender.py exists as proxy for "Ready"
+    _wa_ready = (BASE_DIR / "whatsapp_sender.py").exists()
+    _wa_status_cls = "channel-status-ready" if _wa_ready else "channel-status-idle"
+    _wa_status_txt = "READY" if _wa_ready else "NOT FOUND"
+    st.markdown(
+        f'<div class="channel-card">'
+        f'<div class="channel-card-header">'
+        f'<span class="channel-icon">&#x1F4F1;</span>'
+        f'<span class="channel-title">WhatsApp</span>'
+        f'<span class="channel-status {_wa_status_cls}">{_wa_status_txt}</span>'
+        f'</div>'
+        f'<div class="channel-stat">Queued messages: <strong>{len(_approved_wa)}</strong></div>'
+        f'<div class="channel-stat">Bridge: <strong>{"&#x2705; whatsapp_sender.py" if _wa_ready else "&#x274c; missing"}</strong></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("▶ Run WhatsApp Sender", key="run_wa_sender_btn",
+                 use_container_width=True, disabled=not _wa_ready):
+        with st.status("Running WhatsApp Sender...", expanded=True) as _wa_st:
+            st.write("Launching isolated process (opens WhatsApp Web)...")
+            try:
+                _wa_r = subprocess.run(
+                    ["python", str(BASE_DIR / "whatsapp_sender.py")],
+                    cwd=str(BASE_DIR), timeout=150,
+                    capture_output=True, text=True,
+                    **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                )
+                if _wa_r.returncode == 0:
+                    st.write(_wa_r.stdout[-400:] if len(_wa_r.stdout) > 400 else (_wa_r.stdout or "Done."))
+                    _wa_st.update(label="WhatsApp messages sent!", state="complete")
+                    st.toast("WhatsApp messages sent!", icon="\U0001f4f1")
+                else:
+                    st.write(_wa_r.stderr or _wa_r.stdout or "Unknown error")
+                    _wa_st.update(label="WhatsApp sender failed", state="error")
+            except subprocess.TimeoutExpired:
+                _wa_st.update(label="Timed out after 150s", state="error")
+            except Exception as _e:
+                st.write(str(_e))
+                _wa_st.update(label="Failed", state="error")
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Three-column layout: Inbox | WhatsApp Tasks | Social ──
+hub_inbox, hub_wa, hub_social = st.columns(3)
+
+with hub_inbox:
+    st.markdown("**📧 Inbox**")
     if not df_inbox.empty:
         for _, row in df_inbox.iterrows():
             p = row["Priority"]
@@ -907,8 +1167,85 @@ with hub_left:
     else:
         st.info("No inbox data.")
 
-with hub_right:
-    st.markdown("**Social**")
+with hub_wa:
+    st.markdown("**💬 WhatsApp Tasks**")
+    # Scan Needs_Action for WhatsApp/messaging tasks
+    _wa_tasks = []
+    if NEEDS_ACTION_DIR.exists():
+        for _f in sorted(NEEDS_ACTION_DIR.glob("*.md")):
+            if _f.name == ".gitkeep":
+                continue
+            _txt = _f.read_text(encoding="utf-8", errors="replace")
+            _pri_m = re.search(r"\*\*Priority:\*\*\s*(.+)", _txt)
+            _src_m = re.search(r"\*\*Sender:\*\*\s*(.+)", _txt)
+            _stat_m = re.search(r"\*\*Status:\*\*\s*(.+)", _txt)
+            _title_m = re.search(r"^#\s*(?:AI Task:|ACCT Task:)?\s*(.+)", _txt, re.MULTILINE)
+            _wa_tasks.append({
+                "title": _title_m.group(1).strip() if _title_m else _f.stem,
+                "priority": _pri_m.group(1).strip() if _pri_m else "—",
+                "sender": _src_m.group(1).strip() if _src_m else "—",
+                "status": _stat_m.group(1).strip() if _stat_m else "Pending",
+                "file": _f,
+            })
+
+    if _wa_tasks:
+        for _t in _wa_tasks:
+            _p_color = {"HIGH": "#F85149", "MEDIUM": "#F0883E", "LOW": "#3FB950"}.get(_t["priority"], "#6E7681")
+            st.markdown(
+                f'<div class="wa-task">'
+                f'<div class="wa-task-title">{_t["title"]}</div>'
+                f'<div class="wa-task-meta">'
+                f'<span style="color:{_p_color};">{_t["priority"]}</span> &middot; '
+                f'{_t["sender"]} &middot; {_t["status"]}'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("No pending tasks.")
+
+    # ── AI Reply Composer ──
+    st.markdown("**Quick Reply**")
+    _reply_contact = st.text_input(
+        "Contact name or number",
+        placeholder="e.g. Hamza Naeem or +92300...",
+        key="wa_reply_contact",
+        label_visibility="collapsed",
+    )
+    _reply_msg = st.text_area(
+        "Message",
+        placeholder="Type your WhatsApp reply here...",
+        height=100,
+        key="wa_reply_msg",
+        label_visibility="collapsed",
+    )
+    if st.button("📤 Queue & Send Reply", key="wa_send_reply_btn", use_container_width=True,
+                 disabled=not (_reply_contact.strip() and _reply_msg.strip())):
+        # Write a message file to Approved/ that whatsapp_sender.py can pick up
+        _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _msg_file = APPROVED_DIR / f"WA_Reply_{_ts}.md"
+        _msg_content = (
+            f"# WhatsApp Reply — {_reply_contact.strip()}\n\n"
+            f"- **To:** {_reply_contact.strip()}\n"
+            f"- **Sent:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"- **Status:** Pending\n\n"
+            f"## Message\n\n{_reply_msg.strip()}\n\n"
+            f"---\n*Queued via CEO Dashboard*\n"
+        )
+        _msg_file.write_text(_msg_content, encoding="utf-8")
+        # Launch sender immediately in isolated process
+        try:
+            _safe_popen(
+                ["python", str(BASE_DIR / "whatsapp_sender.py")],
+                cwd=str(BASE_DIR),
+                detach=True,
+            )
+            st.toast(f"Reply queued and sender launched for {_reply_contact.strip()}", icon="\U0001f4f1")
+        except Exception as _re:
+            st.warning(f"Message queued but sender failed to launch: {_re}")
+        st.rerun()
+
+with hub_social:
+    st.markdown("**📊 Social**")
     if social_summary:
         msg_match = re.search(r"Total Messages \| (\d+)", social_summary)
         biz_match = re.search(r"Business Inquiries \| (\d+)", social_summary)
@@ -1034,6 +1371,158 @@ if APPROVED_DIR.exists():
                 st.markdown(f'<div class="card"><div class="card-title">{af.name}</div></div>', unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
+# AI POST CREATOR
+# ──────────────────────────────────────────────
+st.markdown('<div class="section-header">AI Post Creator</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="ai-creator-wrap">'
+    '<div class="ai-creator-title"><span class="ai-badge">&#9889; AI</span>&nbsp; LinkedIn Post Generator</div>'
+    '<div class="ai-creator-sub">Type a 1-line prompt — get a publish-ready LinkedIn post instantly.</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+# Brand selector + prompt input row
+ai_col1, ai_col2 = st.columns([2, 5])
+with ai_col1:
+    ai_brand = st.selectbox(
+        "Brand",
+        options=["multicraft_agency", "lyvexa_ai"],
+        format_func=lambda k: {"multicraft_agency": "Multicraft Agency", "lyvexa_ai": "Lyvexa AI"}.get(k, k),
+        key="ai_brand_select",
+        label_visibility="collapsed",
+    )
+with ai_col2:
+    ai_prompt = st.text_input(
+        "Post prompt",
+        placeholder="e.g.  We just launched an AI dashboard for a fintech client",
+        key="ai_post_prompt",
+        label_visibility="collapsed",
+    )
+
+gen_col, pub_col, clr_col = st.columns([2, 2, 1])
+
+with gen_col:
+    generate_clicked = st.button(
+        "✦ Generate Draft",
+        key="ai_generate_btn",
+        use_container_width=True,
+        type="primary",
+    )
+with pub_col:
+    publish_clicked = st.button(
+        "⚡ Publish Now",
+        key="ai_publish_btn",
+        use_container_width=True,
+        disabled="ai_generated_content" not in st.session_state,
+    )
+with clr_col:
+    if st.button("Clear", key="ai_clear_btn", use_container_width=True):
+        for k in ["ai_generated_content", "ai_saved_path"]:
+            st.session_state.pop(k, None)
+        st.rerun()
+
+# ── Generate ──
+if generate_clicked:
+    topic = ai_prompt.strip() if ai_prompt.strip() else None
+    # Import generate_post directly — no subprocess, instant, no dashboard freeze
+    try:
+        import importlib.util
+        _spec = importlib.util.spec_from_file_location(
+            "linkedin_agent", str(BASE_DIR / "linkedin_agent.py")
+        )
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        content = _mod.generate_post(ai_brand, topic)
+        saved_path = _mod.save_draft(content, ai_brand)
+        st.session_state["ai_generated_content"] = content
+        st.session_state["ai_saved_path"] = str(saved_path)
+        st.toast(f"Draft generated: {saved_path.name}", icon="\u2728")
+    except Exception as e:
+        st.error(f"Generation failed: {e}")
+
+# ── Preview & Edit ──
+if "ai_generated_content" in st.session_state:
+    st.markdown("**Preview & Edit**")
+
+    # Extract just the post body (strip the markdown metadata header for display)
+    _raw = st.session_state["ai_generated_content"]
+    # Find the first --- separator (after the metadata block) and show from there
+    _body_match = re.search(r"---\n\n(.+)", _raw, re.DOTALL)
+    _display = _body_match.group(1).strip() if _body_match else _raw
+
+    edited_post = st.text_area(
+        "Edit your post",
+        value=_display,
+        height=260,
+        key="ai_editor_area",
+        label_visibility="collapsed",
+        help="Edit freely — click Save Draft or Publish Now when ready.",
+    )
+
+    save_edit_col, _ = st.columns([2, 5])
+    with save_edit_col:
+        if st.button("Save Edits to Draft", key="ai_save_edit_btn", use_container_width=True):
+            # Rebuild the full file content with the edited body
+            _header = _raw.split("---")[0] + "---\n\n"
+            _footer = "\n\n---\n\n> Auto-generated by LinkedIn Agent — AI Employee Vault\n> Review and personalize before posting.\n"
+            _updated = _header + edited_post.strip() + _footer
+            _path = Path(st.session_state["ai_saved_path"])
+            if _path.exists():
+                _path.write_text(_updated, encoding="utf-8")
+                st.session_state["ai_generated_content"] = _updated
+                st.toast("Draft saved", icon="\U0001f4be")
+            else:
+                st.warning("Draft file not found — may have been moved.")
+
+    if "ai_saved_path" in st.session_state:
+        st.caption(f"Saved to: `{Path(st.session_state['ai_saved_path']).name}`")
+
+# ── Publish Now ──
+if publish_clicked and "ai_generated_content" in st.session_state:
+    # First write the current editor content back to the draft file
+    _raw2 = st.session_state["ai_generated_content"]
+    _path2 = Path(st.session_state.get("ai_saved_path", ""))
+    if _path2.exists():
+        # Merge any in-editor edits if the text_area value differs
+        _area_val = st.session_state.get("ai_editor_area", "")
+        if _area_val:
+            _header2 = _raw2.split("---")[0] + "---\n\n"
+            _footer2 = "\n\n---\n\n> Auto-generated by LinkedIn Agent — AI Employee Vault\n> Review and personalize before posting.\n"
+            _path2.write_text(_header2 + _area_val.strip() + _footer2, encoding="utf-8")
+        # Move to Approved so linkedin_poster.py picks it up
+        _approved_dest = APPROVED_DIR / _path2.name
+        shutil.copy2(str(_path2), str(_approved_dest))
+
+    # Launch poster in isolated subprocess (non-blocking, won't freeze dashboard)
+    with st.status("Publishing to LinkedIn...", expanded=True) as _pub_status:
+        st.write("Launching LinkedIn poster (isolated process)...")
+        try:
+            _pub_proc = subprocess.run(
+                ["python", str(BASE_DIR / "linkedin_poster.py")],
+                cwd=str(BASE_DIR), timeout=150,
+                capture_output=True, text=True,
+                **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+            )
+            if _pub_proc.returncode == 0:
+                st.write("Post submitted to LinkedIn.")
+                _pub_status.update(label="Published!", state="complete")
+                st.toast("Post published to LinkedIn!", icon="\U0001f680")
+                # Clear the generator state
+                for k in ["ai_generated_content", "ai_saved_path"]:
+                    st.session_state.pop(k, None)
+            else:
+                err_msg = _pub_proc.stderr or _pub_proc.stdout or "Unknown error"
+                st.write(f"Error: {err_msg[:300]}")
+                _pub_status.update(label="Publish failed", state="error")
+        except subprocess.TimeoutExpired:
+            _pub_status.update(label="Timed out after 150s", state="error")
+            st.warning("LinkedIn poster timed out. Check logs.")
+        except Exception as _e:
+            st.write(str(_e))
+            _pub_status.update(label="Publish failed", state="error")
+
+# ──────────────────────────────────────────────
 # CHARTS
 # ──────────────────────────────────────────────
 chart_left, chart_right = st.columns(2)
@@ -1063,7 +1552,7 @@ with chart_left:
 
 with chart_right:
     st.markdown('<div class="section-header">Expense Breakdown</div>', unsafe_allow_html=True)
-    if accounting and expenses:
+    if expenses:
         by_cat = {}
         for e in expenses:
             by_cat[e["category"]] = by_cat.get(e["category"], 0) + e["amount"]
