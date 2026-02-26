@@ -33,7 +33,12 @@ except ImportError:
 
 BASE_DIR = Path(__file__).resolve().parent
 DRAFTS_DIR = BASE_DIR / "Drafts"
+APPROVED_DIR = BASE_DIR / "Approved"
+DONE_DIR = BASE_DIR / "Done"
 PLAYWRIGHT_PROFILE = BASE_DIR / ".playwright_profile"
+
+APPROVED_DIR.mkdir(exist_ok=True)
+DONE_DIR.mkdir(exist_ok=True)
 
 
 def close_chrome():
@@ -62,13 +67,25 @@ def get_browser_context(playwright):
 
 
 def find_latest_draft():
-    """Find the most recently modified LinkedIn draft in Drafts/."""
+    """Find the most recently modified LinkedIn draft.
+    Prefers Approved/ (ready-to-post) over Drafts/ (still in review).
+    Skips files already marked as Posted or Approved+already-sent."""
+    # Check Approved/ first — these are CEO-approved and ready
+    approved_files = list(APPROVED_DIR.glob("LinkedIn_Post*.md"))
+    approved_files = [f for f in approved_files if "**Status:** Posted" not in f.read_text(encoding="utf-8")]
+    if approved_files:
+        approved_files.sort(key=os.path.getmtime, reverse=True)
+        print(f"[INFO] Found {len(approved_files)} approved draft(s) — using latest from Approved/")
+        return approved_files[0]
+
+    # Fall back to Drafts/
     pattern = str(DRAFTS_DIR / "LinkedIn_Post*.md")
     files = glob.glob(pattern)
     if not files:
-        print("[ERROR] No LinkedIn drafts found in Drafts/")
+        print("[ERROR] No LinkedIn drafts found in Approved/ or Drafts/")
         return None
     files.sort(key=os.path.getmtime, reverse=True)
+    print(f"[INFO] No approved drafts — using latest from Drafts/")
     return Path(files[0])
 
 
@@ -356,11 +373,18 @@ def post_to_linkedin(content):
 
 
 def mark_as_posted(filepath):
-    """Update the draft file status from Draft to Posted."""
+    """Update the draft file status to Posted and move it to Done/."""
+    import shutil
     text = filepath.read_text(encoding="utf-8")
-    updated = text.replace("**Status:** Draft", "**Status:** Posted")
+    # Update status regardless of current value (Draft or Approved)
+    updated = re.sub(r"\*\*Status:\*\*\s*\S+", "**Status:** Posted", text)
+    updated += f"\n\n---\n*Posted: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n"
     filepath.write_text(updated, encoding="utf-8")
     print(f"[OK] Marked {filepath.name} as Posted")
+    # Move to Done/ for audit trail
+    dest = DONE_DIR / filepath.name
+    shutil.move(str(filepath), str(dest))
+    print(f"[OK] Moved to Done/{filepath.name}")
 
 
 def main():
