@@ -51,17 +51,30 @@ def close_chrome():
 
 def get_browser_context(playwright):
     """Launch persistent Chromium context with saved profile."""
-    return playwright.chromium.launch_persistent_context(
-        user_data_dir=str(PROFILE_DIR),
-        headless=False,
-        channel="chrome",
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-        ],
-        viewport={"width": 1280, "height": 900},
-        ignore_default_args=["--enable-automation"],
-    )
+    # Try system Chrome first, fall back to bundled Chromium
+    for channel in ["chrome", None]:
+        try:
+            kwargs = dict(
+                user_data_dir=str(PROFILE_DIR),
+                headless=False,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ],
+                viewport={"width": 1280, "height": 900},
+                ignore_default_args=["--enable-automation"],
+                slow_mo=100,
+            )
+            if channel:
+                kwargs["channel"] = channel
+            return playwright.chromium.launch_persistent_context(**kwargs)
+        except Exception as e:
+            if channel is None:
+                raise e
+            print(f"[WARN] Chrome channel failed ({e}), trying bundled Chromium...")
 
 
 def parse_message_file(filepath):
@@ -122,7 +135,7 @@ def send_whatsapp(contact, message):
             for attempt in range(3):
                 try:
                     print(f"[INFO] Navigating to WhatsApp Web (attempt {attempt+1}/3)...")
-                    page.goto("https://web.whatsapp.com/", timeout=300000, wait_until="commit")
+                    page.goto("https://web.whatsapp.com/", timeout=300000, wait_until="domcontentloaded")
                     break
                 except Exception as nav_err:
                     if attempt < 2:
@@ -250,7 +263,7 @@ def process_approved():
         for attempt in range(3):
             try:
                 print(f"[INFO] Navigating to WhatsApp Web (attempt {attempt+1}/3)...")
-                page.goto("https://web.whatsapp.com/", timeout=300000, wait_until="commit")
+                page.goto("https://web.whatsapp.com/", timeout=300000, wait_until="domcontentloaded")
                 break
             except Exception as nav_err:
                 if attempt < 2:
