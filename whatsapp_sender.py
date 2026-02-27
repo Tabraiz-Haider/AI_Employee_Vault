@@ -106,7 +106,7 @@ def login_flow():
 # SEND MESSAGE
 # ──────────────────────────────────────────────
 def send_whatsapp(contact, message):
-    """Launch browser and send a WhatsApp message to the given contact."""
+    """Launch browser and send a single WhatsApp message. Used for direct calls."""
     print(f"[INFO] Sending to '{contact}' via WhatsApp Web...")
 
     with sync_playwright() as p:
@@ -119,47 +119,45 @@ def send_whatsapp(contact, message):
         page = context.pages[0] if context.pages else context.new_page()
 
         try:
-            # Navigate to WhatsApp Web with retry
             for attempt in range(3):
                 try:
                     print(f"[INFO] Navigating to WhatsApp Web (attempt {attempt+1}/3)...")
-                    page.goto("https://web.whatsapp.com/", timeout=120000, wait_until="commit")
+                    page.goto("https://web.whatsapp.com/", timeout=300000, wait_until="commit")
                     break
                 except Exception as nav_err:
                     if attempt < 2:
-                        print(f"[WARN] Navigation failed, retrying in 5s... ({nav_err})")
-                        page.wait_for_timeout(5000)
+                        print(f"[WARN] Navigation failed, retrying in 10s... ({nav_err})")
+                        page.wait_for_timeout(10000)
                     else:
                         raise nav_err
 
-            # Wait for WhatsApp to fully load (QR scan or session restore)
-            print("[INFO] Waiting for WhatsApp to load...")
+            print("[INFO] Waiting for WhatsApp to load (up to 5 min for first-time session restore)...")
             page.wait_for_selector(
                 'div[contenteditable="true"][data-tab="3"], '
-                'div[title="Search input textbox"]',
-                timeout=60000,
+                'div[title="Search input textbox"], '
+                'div[aria-label="Search input textbox"], '
+                '[data-testid="chat-list-search"]',
+                timeout=300000,
             )
             page.wait_for_timeout(2000)
 
-            # Search for contact
-            print(f"[INFO] Searching for contact: {contact}")
             search_box = page.locator(
                 'div[contenteditable="true"][data-tab="3"], '
-                'div[title="Search input textbox"]'
+                'div[title="Search input textbox"], '
+                'div[aria-label="Search input textbox"]'
             )
-            search_box.first.click(timeout=10000)
+            search_box.first.click(timeout=15000)
+            page.keyboard.press("Control+a")
+            page.keyboard.press("Delete")
             page.keyboard.type(contact, delay=50)
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(2500)
 
-            # Click on the contact from search results
             contact_result = page.locator(
                 f'span[title="{contact}"], span.matched-text'
             )
             contact_result.first.click(timeout=15000)
             page.wait_for_timeout(1000)
 
-            # Type the message
-            print("[INFO] Typing message...")
             msg_box = page.locator(
                 'div[contenteditable="true"][data-tab="10"], '
                 'div[title="Type a message"], '
@@ -174,19 +172,15 @@ def send_whatsapp(contact, message):
                 page.keyboard.type(line, delay=10)
 
             page.wait_for_timeout(500)
-
-            # Send the message
-            print("[INFO] Sending message...")
             page.keyboard.press("Enter")
-            print("[INFO] Waiting 10s for message to deliver...")
-            page.wait_for_timeout(10000)
-
+            print("[INFO] Waiting 8s for message to deliver...")
+            page.wait_for_timeout(8000)
             print(f"[OK] Message sent to {contact}!")
             success = True
 
         except PwTimeout as e:
-            print(f"[ERROR] Timeout waiting for element: {e}")
-            print("[HINT] WhatsApp Web may have updated its UI. Check selectors in whatsapp_sender.py.")
+            print(f"[ERROR] Timeout: {e}")
+            print("[HINT] WhatsApp Web may have updated its UI. Check selectors.")
             success = False
         except Exception as e:
             print(f"[ERROR] {e}")
@@ -216,37 +210,136 @@ def watch_loop():
 # MAIN PROCESSING
 # ──────────────────────────────────────────────
 def process_approved():
-    """Find all approved .md files and send WhatsApp messages."""
-    files = sorted(APPROVED_DIR.glob("*.md"))
+    """Find all approved .md WA files and send — one browser session for all messages."""
+    files = sorted(APPROVED_DIR.glob("WA_*.md"))
     if not files:
-        print("[INFO] No approved messages found.")
+        print("[INFO] No approved WA messages found.")
         return
 
     print(f"[INFO] Found {len(files)} approved message(s)\n")
 
-    sent = 0
+    # Parse all files first, skip invalid
+    tasks = []
     for f in files:
-        print(f"--- Processing: {f.name} ---")
         contact, message = parse_message_file(f)
-
         if not contact:
-            print(f"  [SKIP] {f.name} — no **To:** field found\n")
+            print(f"  [SKIP] {f.name} — no **To:** field found")
             continue
-
         if not message:
-            print(f"  [SKIP] {f.name} — no ## Message content found\n")
+            print(f"  [SKIP] {f.name} — no ## Message content found")
             continue
+        tasks.append((f, contact, message))
 
-        ok = send_whatsapp(contact, message)
-        if ok:
-            dest = DONE_DIR / f.name
-            shutil.move(str(f), str(dest))
-            print(f"[OK] Moved {f.name} -> Done/\n")
-            sent += 1
-        else:
-            print(f"  [FAILED] Could not send to {contact}. File remains in Approved/.\n")
+    if not tasks:
+        print("[INFO] Nothing to send.")
+        return
 
-    print(f"\n[DONE] Sent {sent} message(s).")
+    # Open browser ONCE for all messages
+    sent = 0
+    with sync_playwright() as p:
+        try:
+            context = get_browser_context(p)
+        except Exception as e:
+            print(f"[ERROR] Could not launch browser: {e}")
+            return
+
+        page = context.pages[0] if context.pages else context.new_page()
+
+        # Navigate to WhatsApp Web once
+        loaded = False
+        for attempt in range(3):
+            try:
+                print(f"[INFO] Navigating to WhatsApp Web (attempt {attempt+1}/3)...")
+                page.goto("https://web.whatsapp.com/", timeout=300000, wait_until="commit")
+                break
+            except Exception as nav_err:
+                if attempt < 2:
+                    print(f"[WARN] Navigation failed, retrying in 10s... ({nav_err})")
+                    page.wait_for_timeout(10000)
+                else:
+                    print(f"[ERROR] Could not reach WhatsApp Web: {nav_err}")
+                    context.close()
+                    return
+
+        print("[INFO] Waiting for WhatsApp to load (up to 5 min for first-time session restore)...")
+        try:
+            page.wait_for_selector(
+                'div[contenteditable="true"][data-tab="3"], '
+                'div[title="Search input textbox"], '
+                'div[aria-label="Search input textbox"], '
+                '[data-testid="chat-list-search"]',
+                timeout=300000,
+            )
+            page.wait_for_timeout(2000)
+            loaded = True
+            print("[OK] WhatsApp Web loaded.")
+        except Exception as e:
+            print(f"[ERROR] WhatsApp did not load in time: {e}")
+            context.close()
+            return
+
+        # Send each message in the same session
+        for f, contact, message in tasks:
+            print(f"\n--- Sending to: {contact} ({f.name}) ---")
+            try:
+                # Search for contact
+                search_box = page.locator(
+                    'div[contenteditable="true"][data-tab="3"], '
+                    'div[title="Search input textbox"], '
+                    'div[aria-label="Search input textbox"]'
+                )
+                search_box.first.click(timeout=15000)
+                # Clear previous search
+                page.keyboard.press("Control+a")
+                page.keyboard.press("Delete")
+                page.keyboard.type(contact, delay=50)
+                page.wait_for_timeout(2500)
+
+                # Click contact result
+                contact_result = page.locator(
+                    f'span[title="{contact}"], '
+                    f'span[title^="{contact[:8]}"], '
+                    'span.matched-text'
+                )
+                contact_result.first.click(timeout=15000)
+                page.wait_for_timeout(1000)
+
+                # Type message
+                msg_box = page.locator(
+                    'div[contenteditable="true"][data-tab="10"], '
+                    'div[title="Type a message"], '
+                    'footer div[contenteditable="true"]'
+                )
+                msg_box.first.click(timeout=10000)
+
+                lines = message.split("\n")
+                for i, line in enumerate(lines):
+                    if i > 0:
+                        page.keyboard.press("Shift+Enter")
+                    page.keyboard.type(line, delay=10)
+
+                page.wait_for_timeout(500)
+                page.keyboard.press("Enter")
+                print(f"[INFO] Message sent — waiting 8s for delivery...")
+                page.wait_for_timeout(8000)
+
+                # Archive
+                dest = DONE_DIR / f.name
+                shutil.move(str(f), str(dest))
+                print(f"[OK] {f.name} moved to Done/")
+                sent += 1
+
+            except PwTimeout as e:
+                print(f"[ERROR] Timeout for {contact}: {e}")
+            except Exception as e:
+                print(f"[ERROR] Failed for {contact}: {e}")
+
+        try:
+            context.close()
+        except Exception:
+            pass
+
+    print(f"\n[DONE] Sent {sent}/{len(tasks)} message(s).")
 
 
 def main():
