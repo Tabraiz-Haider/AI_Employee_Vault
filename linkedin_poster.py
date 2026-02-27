@@ -193,29 +193,18 @@ def post_to_linkedin(content):
                     page.locator(".share-box-feed-entry__trigger").first.wait_for(state="visible", timeout=8000),
                     page.locator(".share-box-feed-entry__trigger").first.click(force=True, timeout=5000),
                 ),
-                # Strategy 3: aria-label
+                # Strategy 3: JS click — proven reliable on 2026 LinkedIn DOM
+                # Finds the innermost element containing "Start a post" and clicks it.
                 lambda: (
-                    print("[INFO] Strategy 3: aria-label...") or True,
-                    page.locator("[aria-label*='Start a post']").first.wait_for(state="visible", timeout=8000),
-                    page.locator("[aria-label*='Start a post']").first.click(force=True, timeout=5000),
-                ),
-                # Strategy 4: placeholder/prompt button (common LinkedIn pattern)
-                lambda: (
-                    print("[INFO] Strategy 4: share prompt button...") or True,
-                    page.locator("button.share-box-feed-entry__trigger, button.artdeco-pill, [data-control-name='share.share_feed_entry']").first.wait_for(state="visible", timeout=8000),
-                    page.locator("button.share-box-feed-entry__trigger, button.artdeco-pill, [data-control-name='share.share_feed_entry']").first.click(force=True, timeout=5000),
-                ),
-                # Strategy 5: JavaScript click — find innermost element with "Start a post"
-                lambda: (
-                    print("[INFO] Strategy 5: JavaScript click...") or True,
+                    print("[INFO] Strategy 3: JavaScript innermost click...") or True,
                     page.evaluate("""
                         (() => {
                             const all = document.querySelectorAll('*');
                             let best = null;
                             for (const el of all) {
-                                const text = el.textContent || '';
+                                const text = (el.textContent || '').trim();
                                 if (text.includes('Start a post') && el.children.length < 3) {
-                                    if (!best || el.textContent.length < best.textContent.length) {
+                                    if (!best || text.length < best.textContent.trim().length) {
                                         best = el;
                                     }
                                 }
@@ -224,6 +213,28 @@ def post_to_linkedin(content):
                             return false;
                         })()
                     """),
+                ),
+                # Strategy 4: aria-label
+                lambda: (
+                    print("[INFO] Strategy 4: aria-label...") or True,
+                    page.locator("[aria-label*='Start a post']").first.wait_for(state="visible", timeout=8000),
+                    page.locator("[aria-label*='Start a post']").first.click(force=True, timeout=5000),
+                ),
+                # Strategy 5: data-view-name (LinkedIn 2025/2026 feed composer button)
+                lambda: (
+                    print("[INFO] Strategy 5: data-view-name feed composer...") or True,
+                    page.locator("[data-view-name='share-creation-state'] button, "
+                                 "button[data-control-name='share.share_feed_entry'], "
+                                 ".share-box-feed-entry__closed-share-box button").first.wait_for(state="visible", timeout=8000),
+                    page.locator("[data-view-name='share-creation-state'] button, "
+                                 "button[data-control-name='share.share_feed_entry'], "
+                                 ".share-box-feed-entry__closed-share-box button").first.click(force=True, timeout=5000),
+                ),
+                # Strategy 6: share prompt button / artdeco pill fallback
+                lambda: (
+                    print("[INFO] Strategy 6: share prompt fallback...") or True,
+                    page.locator("button.share-box-feed-entry__trigger, button.artdeco-pill").first.wait_for(state="visible", timeout=8000),
+                    page.locator("button.share-box-feed-entry__trigger, button.artdeco-pill").first.click(force=True, timeout=5000),
                 ),
             ]
 

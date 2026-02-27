@@ -450,30 +450,73 @@ WATCHERS = {
 # ──────────────────────────────────────────────
 # PROCESS MANAGEMENT HELPERS
 # ──────────────────────────────────────────────
-# Windows-only isolation flag — keeps child process in its own console
-# so if it crashes it does NOT take down the Streamlit tab.
+# IMPORTANT: On Windows, CREATE_NEW_CONSOLE is incompatible with
+# capture_output=True / PIPE (causes WinError 87 — invalid parameter).
+# Solution: route output through a temp file instead of PIPE.
 _CREATE_NEW_CONSOLE = 0x00000010  # subprocess.CREATE_NEW_CONSOLE
 
 
-def _safe_popen(cmd, cwd=None, stdout=None, stderr=None, detach=False):
-    """Launch a subprocess fully isolated from the Streamlit process."""
-    kwargs = dict(
-        cwd=cwd or str(BASE_DIR),
-        stdout=stdout or subprocess.DEVNULL,
-        stderr=stderr or subprocess.DEVNULL,
-    )
+def _safe_run(cmd, cwd=None, timeout=150):
+    """Run a command in an isolated process and capture output via temp file.
+    Avoids WinError 87 by never using PIPE with CREATE_NEW_CONSOLE."""
+    import tempfile
+    cwd = cwd or str(BASE_DIR)
+    # Ensure paths with spaces are handled — use list form (no shell=True needed)
     if os.name == "nt":
-        # On Windows: give the child its own console, prevent it from
-        # inheriting the parent's stdin/stdout handles that Streamlit uses.
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".log",
+                                         delete=False, encoding="utf-8") as tf:
+            tmp_path = tf.name
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as out_f:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=cwd,
+                    stdout=out_f,
+                    stderr=out_f,
+                    creationflags=_CREATE_NEW_CONSOLE,
+                    # Do NOT set close_fds=True when redirecting to a file handle
+                )
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    proc.terminate()
+                    raise
+            output = Path(tmp_path).read_text(encoding="utf-8", errors="replace")
+            return proc.returncode, output
+        finally:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+    else:
+        result = subprocess.run(
+            cmd, cwd=cwd, timeout=timeout,
+            capture_output=True, text=True,
+            start_new_session=True,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+
+def _safe_popen(cmd, cwd=None, stdout=None, stderr=None, detach=False):
+    """Launch a fire-and-forget background process (no output capture)."""
+    cwd = cwd or str(BASE_DIR)
+    if os.name == "nt":
         flags = _CREATE_NEW_CONSOLE
         if detach:
             flags |= 0x00000008  # DETACHED_PROCESS
-        kwargs["creationflags"] = flags
-        kwargs["close_fds"] = True
+        return subprocess.Popen(
+            cmd, cwd=cwd,
+            stdout=stdout or subprocess.DEVNULL,
+            stderr=stderr or subprocess.DEVNULL,
+            creationflags=flags,
+        )
     else:
-        # On Linux/Mac: use a new process group so SIGTERM doesn't propagate
-        kwargs["start_new_session"] = True
-    return subprocess.Popen(cmd, **kwargs)
+        return subprocess.Popen(
+            cmd, cwd=cwd,
+            stdout=stdout or subprocess.DEVNULL,
+            stderr=stderr or subprocess.DEVNULL,
+            start_new_session=True,
+        )
 
 
 def start_watcher(name, script_path):
@@ -775,12 +818,9 @@ with st.sidebar:
                     time.sleep(86400)
                     while st.session_state.get("autopilot_toggle", False):
                         try:
-                            _ap_flags = {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True} if os.name == "nt" else {}
-                            subprocess.run(
+                            _safe_run(
                                 ["python", str(BASE_DIR / "linkedin_agent.py"), "--both"],
-                                cwd=str(BASE_DIR), timeout=120,
-                                capture_output=True,  # suppress console flood
-                                **_ap_flags,
+                                timeout=120,
                             )
                             st.session_state["autopilot_last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                         except Exception:
@@ -806,33 +846,28 @@ with st.sidebar:
         if st.button("Execute All Approved", key="execute_approved_btn", use_container_width=True):
             with st.spinner("Running LinkedIn poster and WhatsApp sender..."):
                 errors = []
-                _win_flags = {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True} if os.name == "nt" else {}
                 try:
-                    lp_result = subprocess.run(
+                    rc, out = _safe_run(
                         ["python", str(BASE_DIR / "linkedin_poster.py")],
-                        cwd=str(BASE_DIR), timeout=120,
-                        capture_output=True, text=True,
-                        **_win_flags,
+                        timeout=120,
                     )
-                    if lp_result.returncode == 0:
+                    if rc == 0:
                         st.success("LinkedIn: Post submitted")
                     else:
-                        errors.append(f"LinkedIn: {lp_result.stderr or lp_result.stdout or 'Unknown error'}")
+                        errors.append(f"LinkedIn: {out[-300:] if out else 'Unknown error'}")
                 except subprocess.TimeoutExpired:
                     errors.append("LinkedIn: Timed out after 120s")
                 except Exception as e:
                     errors.append(f"LinkedIn: {e}")
                 try:
-                    wa_result = subprocess.run(
+                    rc, out = _safe_run(
                         ["python", str(BASE_DIR / "whatsapp_sender.py")],
-                        cwd=str(BASE_DIR), timeout=120,
-                        capture_output=True, text=True,
-                        **_win_flags,
+                        timeout=120,
                     )
-                    if wa_result.returncode == 0:
+                    if rc == 0:
                         st.success("WhatsApp: Messages sent")
                     else:
-                        errors.append(f"WhatsApp: {wa_result.stderr or wa_result.stdout or 'Unknown error'}")
+                        errors.append(f"WhatsApp: {out[-300:] if out else 'Unknown error'}")
                 except subprocess.TimeoutExpired:
                     errors.append("WhatsApp: Timed out after 120s")
                 except Exception as e:
@@ -845,18 +880,16 @@ with st.sidebar:
             with st.status("Running Odoo Audit...", expanded=True) as status:
                 st.write("Connecting to Odoo bridge...")
                 try:
-                    result = subprocess.run(
+                    rc, out = _safe_run(
                         ["python", str(BASE_DIR / "odoo_mcp_bridge.py")],
-                        cwd=str(BASE_DIR), timeout=180,
-                        capture_output=True, text=True,
-                        **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                        timeout=180,
                     )
                     st.write("Generating audit report...")
-                    if result.returncode == 0:
-                        st.write(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
+                    if rc == 0:
+                        st.write(out[-500:] if len(out) > 500 else (out or "Done."))
                         status.update(label="Audit complete!", state="complete")
                     else:
-                        st.write(result.stderr or "Unknown error")
+                        st.write(out[-300:] if out else "Unknown error")
                         status.update(label="Audit failed", state="error")
                 except subprocess.TimeoutExpired:
                     status.update(label="Audit timed out", state="error")
@@ -889,12 +922,11 @@ with st.sidebar:
 
                 st.write("Checking git status...")
                 try:
-                    git_res = subprocess.run(
+                    rc_g, git_out = _safe_run(
                         ["git", "status", "--short"],
-                        cwd=str(BASE_DIR), timeout=10,
-                        capture_output=True, text=True,
+                        timeout=10,
                     )
-                    changes = git_res.stdout.strip()
+                    changes = git_out.strip()
                     if changes:
                         st.write(f"  {len(changes.splitlines())} uncommitted change(s)")
                     else:
@@ -911,16 +943,14 @@ with st.sidebar:
         if st.button("Sync Vault", key="sync_vault_btn", use_container_width=True):
             with st.spinner("Syncing vault..."):
                 try:
-                    sync_result = subprocess.run(
+                    rc, out = _safe_run(
                         ["python", str(BASE_DIR / "vault_sync.py"), "sync"],
-                        cwd=str(BASE_DIR), timeout=60,
-                        capture_output=True, text=True,
-                        **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                        timeout=60,
                     )
-                    if sync_result.returncode == 0:
+                    if rc == 0:
                         st.success("Vault synced")
                     else:
-                        st.error(sync_result.stderr or "Sync failed")
+                        st.error(out[-300:] if out else "Sync failed")
                 except Exception as e:
                     st.error(f"Sync error: {e}")
             st.toast("Vault sync completed", icon="\u2705")
@@ -1084,18 +1114,16 @@ with ch_li:
         with st.status("Running LinkedIn Poster...", expanded=True) as _li_st:
             st.write("Launching isolated process...")
             try:
-                _li_r = subprocess.run(
+                _rc, _out = _safe_run(
                     ["python", str(BASE_DIR / "linkedin_poster.py")],
-                    cwd=str(BASE_DIR), timeout=150,
-                    capture_output=True, text=True,
-                    **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                    timeout=150,
                 )
-                if _li_r.returncode == 0:
-                    st.write(_li_r.stdout[-400:] if len(_li_r.stdout) > 400 else (_li_r.stdout or "Done."))
+                if _rc == 0:
+                    st.write(_out[-400:] if len(_out) > 400 else (_out or "Done."))
                     _li_st.update(label="LinkedIn post sent!", state="complete")
                     st.toast("LinkedIn post published!", icon="\U0001f4bc")
                 else:
-                    st.write(_li_r.stderr or _li_r.stdout or "Unknown error")
+                    st.write(_out[-300:] if _out else "Unknown error")
                     _li_st.update(label="LinkedIn poster failed", state="error")
             except subprocess.TimeoutExpired:
                 _li_st.update(label="Timed out after 150s", state="error")
@@ -1125,18 +1153,16 @@ with ch_wa:
         with st.status("Running WhatsApp Sender...", expanded=True) as _wa_st:
             st.write("Launching isolated process (opens WhatsApp Web)...")
             try:
-                _wa_r = subprocess.run(
+                _rc, _out = _safe_run(
                     ["python", str(BASE_DIR / "whatsapp_sender.py")],
-                    cwd=str(BASE_DIR), timeout=150,
-                    capture_output=True, text=True,
-                    **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                    timeout=150,
                 )
-                if _wa_r.returncode == 0:
-                    st.write(_wa_r.stdout[-400:] if len(_wa_r.stdout) > 400 else (_wa_r.stdout or "Done."))
+                if _rc == 0:
+                    st.write(_out[-400:] if len(_out) > 400 else (_out or "Done."))
                     _wa_st.update(label="WhatsApp messages sent!", state="complete")
                     st.toast("WhatsApp messages sent!", icon="\U0001f4f1")
                 else:
-                    st.write(_wa_r.stderr or _wa_r.stdout or "Unknown error")
+                    st.write(_out[-300:] if _out else "Unknown error")
                     _wa_st.update(label="WhatsApp sender failed", state="error")
             except subprocess.TimeoutExpired:
                 _wa_st.update(label="Timed out after 150s", state="error")
@@ -1494,26 +1520,22 @@ if publish_clicked and "ai_generated_content" in st.session_state:
         _approved_dest = APPROVED_DIR / _path2.name
         shutil.copy2(str(_path2), str(_approved_dest))
 
-    # Launch poster in isolated subprocess (non-blocking, won't freeze dashboard)
+    # Launch poster via _safe_run (temp-file output, no WinError 87)
     with st.status("Publishing to LinkedIn...", expanded=True) as _pub_status:
         st.write("Launching LinkedIn poster (isolated process)...")
         try:
-            _pub_proc = subprocess.run(
+            _rc, _out = _safe_run(
                 ["python", str(BASE_DIR / "linkedin_poster.py")],
-                cwd=str(BASE_DIR), timeout=150,
-                capture_output=True, text=True,
-                **({} if os.name != "nt" else {"creationflags": _CREATE_NEW_CONSOLE, "close_fds": True}),
+                timeout=150,
             )
-            if _pub_proc.returncode == 0:
+            if _rc == 0:
                 st.write("Post submitted to LinkedIn.")
                 _pub_status.update(label="Published!", state="complete")
                 st.toast("Post published to LinkedIn!", icon="\U0001f680")
-                # Clear the generator state
                 for k in ["ai_generated_content", "ai_saved_path"]:
                     st.session_state.pop(k, None)
             else:
-                err_msg = _pub_proc.stderr or _pub_proc.stdout or "Unknown error"
-                st.write(f"Error: {err_msg[:300]}")
+                st.write(f"Error: {_out[-300:] if _out else 'Unknown error'}")
                 _pub_status.update(label="Publish failed", state="error")
         except subprocess.TimeoutExpired:
             _pub_status.update(label="Timed out after 150s", state="error")
