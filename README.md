@@ -134,6 +134,7 @@ accounting_status.json → odoo_mcp_bridge.py → Readings/Accounting_Audit.md �
 ## 🚀 Quick Start
 
 ### 1. Install dependencies
+
 ```bash
 pip install streamlit streamlit-autorefresh plotly pandas playwright
 playwright install chromium

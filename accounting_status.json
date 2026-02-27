@@ -1,5 +1,5 @@
 {
-  "last_synced": "2026-02-18T03:00:00",
+  "last_synced": "2026-02-28T09:00:00",
   "company": "Multicraft Agency",
   "currency": "PKR",
   "fiscal_month": "February 2026",
@@ -29,10 +29,10 @@
       "client": "Tech Starter PK",
       "description": "SaaS Automation Consultation — Discovery Phase",
       "amount": 150000,
-      "status": "overdue",
+      "status": "paid",
       "issue_date": "2026-02-03",
-      "due_date": "2026-02-13",
-      "paid_date": null
+      "due_date": "2026-02-20",
+      "paid_date": "2026-02-19"
     },
     {
       "id": "INV-2026-0044",
@@ -41,7 +41,7 @@
       "amount": 480000,
       "status": "pending",
       "issue_date": "2026-02-10",
-      "due_date": "2026-02-28",
+      "due_date": "2026-03-05",
       "paid_date": null
     },
     {
@@ -50,17 +50,17 @@
       "description": "IoT Monitoring Dashboard — Prototype",
       "amount": 275000,
       "status": "pending",
-      "issue_date": "2026-02-15",
-      "due_date": "2026-03-01",
+      "issue_date": "2026-02-20",
+      "due_date": "2026-03-10",
       "paid_date": null
     },
     {
       "id": "INV-2026-0046",
-      "client": "Ahmed Raza (Clothing Brand)",
-      "description": "E-Commerce Solution — Deposit",
-      "amount": 100000,
+      "client": "Lyvexa AI — Internal",
+      "description": "AI Employee Vault — Phase 2 Deployment",
+      "amount": 120000,
       "status": "draft",
-      "issue_date": "2026-02-18",
+      "issue_date": "2026-02-28",
       "due_date": null,
       "paid_date": null
     }
@@ -135,13 +135,13 @@
       "vendor": "GoDaddy",
       "description": "Domain renewals — 2 domains",
       "amount": 7800,
-      "date": "2026-02-15",
-      "status": "pending"
+      "date": "2026-02-18",
+      "status": "paid"
     }
   ],
   "bank_balance": {
     "account": "Meezan Bank — Business Current",
-    "balance": 612000,
-    "as_of": "2026-02-17"
+    "balance": 745000,
+    "as_of": "2026-02-28"
   }
 }
