@@ -133,3 +133,26 @@ These directories must always exist (even if empty). `vault_sync.py` creates the
 Needs_Action/   In_Progress/   Pending_Approval/   Approved/   Done/
 Drafts/   Readings/   Plans/   Task/   Commands/   logs/   prompt_history/
 ```
+
+---
+
+## Cleanup Safety Rules
+
+When performing any "studio cleanup", "reset", or "clear" operation:
+
+**NEVER delete files from:**
+- `prompt_history/` — permanent step-by-step development log, irreplaceable documentation
+- `logs/` — only truncate `agent_activity.log` (empty the file, do not delete it)
+- `specs/` — SpecKit rule definitions
+- Any `.py` script at root level or in `watchers/`
+
+**Safe to clear (files only, keep `.gitkeep`):**
+- `Drafts/` — generated content
+- `Approved/` — queued outbox
+- `Done/` — already-sent archive
+- `Needs_Action/` — processed task files
+
+If files are accidentally deleted, recover with:
+```bash
+git checkout <last-good-commit> -- prompt_history/
+```
