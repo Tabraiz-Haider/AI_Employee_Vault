@@ -126,6 +126,21 @@ check("DASH-008", "CRITICAL",
       "No shell=True in app.py",
       "shell=True found in app.py — security risk")
 
+# DASH-009: no bare "python" string in subprocess call lists
+bare_python = re.findall(r'\["python"\s*,|\["python"\s*\]', app_code_only)
+check("DASH-009", "CRITICAL",
+      len(bare_python) == 0,
+      "All subprocess calls use _PY (sys.executable), not bare 'python' string",
+      f"Found {len(bare_python)} bare 'python' string(s) in subprocess calls — use _PY = sys.executable")
+
+# DASH-010: _safe_popen Windows branch uses DEVNULL (no file handle)
+safe_popen_body = re.search(r"def _safe_popen\([\s\S]{0,2000}?def ", app_txt)
+sp_body = safe_popen_body.group(0) if safe_popen_body else ""
+check("DASH-010", "CRITICAL",
+      "subprocess.DEVNULL" in sp_body and "stdout or subprocess.DEVNULL" not in sp_body.split("if os.name")[1].split("else")[0] if "if os.name" in sp_body else "subprocess.DEVNULL" in sp_body,
+      "_safe_popen Windows branch routes to DEVNULL only (no file-handle WinError 87 risk)",
+      "_safe_popen may pass file handle with CREATE_NEW_CONSOLE — WinError 87 risk")
+
 for rule_id, sev, passed, msg in results:
     (ok if passed else (fail if sev == "CRITICAL" else warn))(f"[{rule_id}] {msg}")
 
@@ -277,6 +292,7 @@ checks = [
     ("DASH-003", "HIGH",     "def _mock_accounting(" in app_txt),
     ("DASH-005", "CRITICAL", "PROTECTED_FILES" in sync_txt),
     ("DASH-008", "CRITICAL", "shell=True" not in re.sub(r"#[^\n]*", "", app_txt)),
+    ("DASH-009", "CRITICAL", len(re.findall(r'\["python"\s*,|\["python"\s*\]', re.sub(r"#[^\n]*", "", app_txt))) == 0),
     ("WA-001",   "CRITICAL", any(t >= 300000 for t in [int(m) for m in re.findall(r"timeout=(\d+)", wa_txt)])),
     ("WA-002",   "CRITICAL", "APPROVED_DIR" in wa_txt),
     ("WA-006",   "CRITICAL", "shell=True" not in wa_txt),

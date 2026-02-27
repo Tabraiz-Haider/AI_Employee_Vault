@@ -7,11 +7,15 @@ import subprocess
 import threading
 import time
 import os
+import sys
 import signal
 import shutil
 from pathlib import Path
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+
+# Always use the same Python interpreter that is running this script
+_PY = sys.executable
 
 # ──────────────────────────────────────────────
 # PAGE CONFIG
@@ -498,16 +502,25 @@ def _safe_run(cmd, cwd=None, timeout=150):
 
 
 def _safe_popen(cmd, cwd=None, stdout=None, stderr=None, detach=False):
-    """Launch a fire-and-forget background process (no output capture)."""
+    """Launch a fire-and-forget background process (no output capture).
+
+    WinError 87 rule: CREATE_NEW_CONSOLE is incompatible with any PIPE or
+    inherited file-handle that was opened in the parent process.
+    On Windows we always use DEVNULL — callers that want logging should
+    let the child script write its own log file.
+    """
     cwd = cwd or str(BASE_DIR)
+    # Ensure sys.executable is used (first element must be the interpreter)
     if os.name == "nt":
         flags = _CREATE_NEW_CONSOLE
         if detach:
             flags |= 0x00000008  # DETACHED_PROCESS
         return subprocess.Popen(
             cmd, cwd=cwd,
-            stdout=stdout or subprocess.DEVNULL,
-            stderr=stderr or subprocess.DEVNULL,
+            # CRITICAL: never pass stdout/stderr handles with CREATE_NEW_CONSOLE
+            # — that combination triggers WinError 87 (invalid parameter).
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=flags,
         )
     else:
@@ -525,18 +538,15 @@ def start_watcher(name, script_path):
     if not full_path.exists():
         st.toast(f"{name}: script not found ({script_path})", icon="\u274c")
         return
-    log_handle = open(LOG_FILE, "a", encoding="utf-8")
-    log_handle.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] Starting {name}...\n")
-    log_handle.flush()
+    # Log the launch event — then close handle before Popen to avoid WinError 87
+    with open(LOG_FILE, "a", encoding="utf-8") as _lf:
+        _lf.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] Starting {name}...\n")
     proc = _safe_popen(
-        ["python", str(full_path)],
+        [_PY, str(full_path)],
         cwd=str(BASE_DIR),
-        stdout=log_handle,
-        stderr=log_handle,
     )
     st.session_state[f"watcher_{name}_pid"] = proc.pid
     st.session_state[f"watcher_{name}_proc"] = proc
-    st.session_state[f"watcher_{name}_log"] = log_handle
 
 
 def stop_watcher(name):
@@ -819,7 +829,7 @@ with st.sidebar:
                     while st.session_state.get("autopilot_toggle", False):
                         try:
                             _safe_run(
-                                ["python", str(BASE_DIR / "linkedin_agent.py"), "--both"],
+                                [_PY, str(BASE_DIR / "linkedin_agent.py"), "--both"],
                                 timeout=120,
                             )
                             st.session_state["autopilot_last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -848,7 +858,7 @@ with st.sidebar:
                 errors = []
                 try:
                     rc, out = _safe_run(
-                        ["python", str(BASE_DIR / "linkedin_poster.py")],
+                        [_PY, str(BASE_DIR / "linkedin_poster.py")],
                         timeout=120,
                     )
                     if rc == 0:
@@ -861,7 +871,7 @@ with st.sidebar:
                     errors.append(f"LinkedIn: {e}")
                 try:
                     rc, out = _safe_run(
-                        ["python", str(BASE_DIR / "whatsapp_sender.py")],
+                        [_PY, str(BASE_DIR / "whatsapp_sender.py")],
                         timeout=120,
                     )
                     if rc == 0:
@@ -881,7 +891,7 @@ with st.sidebar:
                 st.write("Connecting to Odoo bridge...")
                 try:
                     rc, out = _safe_run(
-                        ["python", str(BASE_DIR / "odoo_mcp_bridge.py")],
+                        [_PY, str(BASE_DIR / "odoo_mcp_bridge.py")],
                         timeout=180,
                     )
                     st.write("Generating audit report...")
@@ -944,7 +954,7 @@ with st.sidebar:
             with st.spinner("Syncing vault..."):
                 try:
                     rc, out = _safe_run(
-                        ["python", str(BASE_DIR / "vault_sync.py"), "sync"],
+                        [_PY, str(BASE_DIR / "vault_sync.py"), "sync"],
                         timeout=60,
                     )
                     if rc == 0:
@@ -1115,7 +1125,7 @@ with ch_li:
             st.write("Launching isolated process...")
             try:
                 _rc, _out = _safe_run(
-                    ["python", str(BASE_DIR / "linkedin_poster.py")],
+                    [_PY, str(BASE_DIR / "linkedin_poster.py")],
                     timeout=150,
                 )
                 if _rc == 0:
@@ -1154,7 +1164,7 @@ with ch_wa:
             st.write("Launching isolated process (opens WhatsApp Web)...")
             try:
                 _rc, _out = _safe_run(
-                    ["python", str(BASE_DIR / "whatsapp_sender.py")],
+                    [_PY, str(BASE_DIR / "whatsapp_sender.py")],
                     timeout=150,
                 )
                 if _rc == 0:
@@ -1261,7 +1271,7 @@ with hub_wa:
         # Launch sender immediately in isolated process
         try:
             _safe_popen(
-                ["python", str(BASE_DIR / "whatsapp_sender.py")],
+                [_PY, str(BASE_DIR / "whatsapp_sender.py")],
                 cwd=str(BASE_DIR),
                 detach=True,
             )
@@ -1525,7 +1535,7 @@ if publish_clicked and "ai_generated_content" in st.session_state:
         st.write("Launching LinkedIn poster (isolated process)...")
         try:
             _rc, _out = _safe_run(
-                ["python", str(BASE_DIR / "linkedin_poster.py")],
+                [_PY, str(BASE_DIR / "linkedin_poster.py")],
                 timeout=150,
             )
             if _rc == 0:

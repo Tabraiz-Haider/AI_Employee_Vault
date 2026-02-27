@@ -26,6 +26,26 @@ desc     = On Windows, child processes must use CREATE_NEW_CONSOLE (0x00000010)
 check    = _CREATE_NEW_CONSOLE = 0x00000010 defined and used in _safe_run/_safe_popen
 current  = PASS
 
+[rule: DASH-009]
+name     = sys_executable_not_python_string
+severity = CRITICAL
+desc     = All subprocess/Popen calls MUST use sys.executable (_PY) as the interpreter,
+           never the bare string "python". Bare "python" can resolve to the wrong
+           interpreter or fail entirely if Python is not on PATH (common in venv/conda).
+           Define _PY = sys.executable at module level and use it everywhere.
+check    = no ["python", ...] lists in subprocess calls — all use _PY variable
+current  = PASS — _PY = sys.executable defined; all 9 call sites updated
+
+[rule: DASH-010]
+name     = safe_popen_devnull_only_on_windows
+severity = CRITICAL
+desc     = _safe_popen() on Windows MUST route stdout/stderr to DEVNULL only.
+           Passing an open file handle with CREATE_NEW_CONSOLE triggers WinError 87
+           (invalid parameter — inherited handles incompatible with new console).
+           Callers that want logging must write their own log file inside the child process.
+check    = _safe_popen Windows branch uses subprocess.DEVNULL for stdout and stderr
+current  = PASS — fixed in Step 0.0 revision
+
 [rule: DASH-003]
 name     = mock_accounting_fallback
 severity = HIGH
