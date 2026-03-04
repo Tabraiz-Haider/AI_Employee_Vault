@@ -504,21 +504,21 @@ def _safe_run(cmd, cwd=None, timeout=150):
 def _safe_popen(cmd, cwd=None, stdout=None, stderr=None, detach=False):
     """Launch a fire-and-forget background process (no output capture).
 
-    WinError 87 rule: CREATE_NEW_CONSOLE is incompatible with any PIPE or
-    inherited file-handle that was opened in the parent process.
-    On Windows we always use DEVNULL — callers that want logging should
-    let the child script write its own log file.
+    WinError 87 rules (Windows):
+      1. CREATE_NEW_CONSOLE is incompatible with PIPE or file handles.
+      2. CREATE_NEW_CONSOLE (0x10) and DETACHED_PROCESS (0x08) are
+         MUTUALLY EXCLUSIVE — combining them causes WinError 87.
+      3. Always use subprocess.DEVNULL for stdout/stderr.
     """
     cwd = cwd or str(BASE_DIR)
-    # Ensure sys.executable is used (first element must be the interpreter)
     if os.name == "nt":
-        flags = _CREATE_NEW_CONSOLE
+        # Pick ONE flag — never combine CREATE_NEW_CONSOLE + DETACHED_PROCESS
         if detach:
-            flags |= 0x00000008  # DETACHED_PROCESS
+            flags = 0x00000008  # DETACHED_PROCESS only
+        else:
+            flags = _CREATE_NEW_CONSOLE  # visible console window
         return subprocess.Popen(
             cmd, cwd=cwd,
-            # CRITICAL: never pass stdout/stderr handles with CREATE_NEW_CONSOLE
-            # — that combination triggers WinError 87 (invalid parameter).
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=flags,
@@ -1275,9 +1275,10 @@ with hub_wa:
                 cwd=str(BASE_DIR),
                 detach=True,
             )
-            st.toast(f"Reply queued and sender launched for {_reply_contact.strip()}", icon="\U0001f4f1")
+            st.success(f"WhatsApp reply queued and sender launched for {_reply_contact.strip()}")
+            st.toast(f"Reply sent to {_reply_contact.strip()}", icon="\U0001f4f1")
         except Exception as _re:
-            st.warning(f"Message queued but sender failed to launch: {_re}")
+            st.error(f"Message queued but sender failed to launch: {_re}")
         st.rerun()
 
 with hub_social:
